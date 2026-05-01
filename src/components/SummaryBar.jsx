@@ -7,10 +7,14 @@ export default function SummaryBar({
   onThresholdChange,
   completeCount,
   totalCount,
+  scale,
+  deleteMessage,
 }) {
+  const pct = Math.round((scale ?? 1) * 100);
+
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 flex items-center gap-6 px-5"
+      className="absolute bottom-0 left-0 right-0 flex items-center gap-5 px-5"
       style={{
         height: SUMMARY_BAR_H,
         background: '#161923',
@@ -61,6 +65,22 @@ export default function SummaryBar({
         <strong style={{ color: '#22c55e' }}>{completeCount}</strong>
         <span style={{ color: '#475569' }}> / {totalCount}</span>
       </Stat>
+
+      <Sep />
+
+      <Stat label="Zoom">
+        <strong style={{ color: '#94a3b8' }}>{pct}%</strong>
+      </Stat>
+
+      {/* Delete confirmation flash */}
+      {deleteMessage && (
+        <>
+          <Sep />
+          <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 500 }}>
+            {deleteMessage}
+          </span>
+        </>
+      )}
     </div>
   );
 }
