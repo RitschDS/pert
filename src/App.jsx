@@ -3,6 +3,7 @@ import { INITIAL_NODES, INITIAL_EDGES, INITIAL_LANES, INITIAL_PHASES } from './d
 import { wouldCreateCycle } from './utils/graph';
 import { computeLaneOffsets, computePhaseOffsets, nodeOutputAnchor, nodeInputAnchor } from './utils/layout';
 import { computeCPM } from './utils/cpm';
+import { computeFocusedSet } from './utils/focus';
 import { LANE_RAIL_W, PHASE_RAIL_H, SUMMARY_BAR_H, MIN_NODE_W, MIN_NODE_H, DEFAULT_NODE_W, DEFAULT_NODE_H } from './utils/constants';
 import PertCanvas from './components/PertCanvas';
 import Toolbar from './components/Toolbar';
@@ -12,12 +13,14 @@ import LaneRail from './components/LaneRail';
 import PhaseRail from './components/PhaseRail';
 import SummaryBar from './components/SummaryBar';
 
+const SCALE_MIN = 0.25;
+const SCALE_MAX = 3;
+const SCALE_STEP = 0.1;
+
 let _nodeId = 100;
 let _edgeId = 100;
 let _laneId = 10;
 let _phaseId = 10;
-
-function uid(prefix) { return `${prefix}${++_nodeId}`; }
 
 export default function App() {
   const [nodes, setNodes] = useState(INITIAL_NODES);
@@ -25,26 +28,41 @@ export default function App() {
   const [lanes, setLanes] = useState(INITIAL_LANES);
   const [phases, setPhases] = useState(INITIAL_PHASES);
   const [pan, setPan] = useState({ x: LANE_RAIL_W + 20, y: PHASE_RAIL_H + 20 });
+  const [scale, setScale] = useState(1);
   const [editingNodeId, setEditingNodeId] = useState(null);
-  const [rubberBand, setRubberBand] = useState(null);
+  const [rubberBand, setRubberBand] = useState(null);        // anchor edge rubber band
+  const [selectRect, setSelectRect] = useState(null);        // bulk-select rubber band
+  const [selectedIds, setSelectedIds] = useState(new Set()); // selected node IDs
   const [cycleWarning, setCycleWarning] = useState(false);
   const [nearCriticalThreshold, setNearCriticalThreshold] = useState(2);
+  const [deleteMessage, setDeleteMessage] = useState(null);
+  const [focusedNodeId, setFocusedNodeId] = useState(null);
 
-  // Refs for stable event handlers
+  // Stable refs so event handlers don't go stale
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   const panRef = useRef(pan);
+  const scaleRef = useRef(1);
+  const selectedIdsRef = useRef(selectedIds);
   const rubberBandRef = useRef(null);
+  const selectRectRef = useRef(null);
   const interactionRef = useRef(null);
-  // { type: 'pan', startX, startY, originPan }
-  // { type: 'nodeDrag', nodeId, startMouseX, startMouseY, startNodeX, startNodeY }
-  // { type: 'nodeResize', nodeId, startMouseX, startMouseY, startW, startH }
+  // interaction types:
+  //   { type:'pan', startX, startY, originPan }
+  //   { type:'nodeDrag', nodeId, startMouseX, startMouseY, startNodeX, startNodeY }
+  //   { type:'nodeResize', nodeId, startMouseX, startMouseY, startW, startH }
+  //   { type:'selectRect' }
+  //   { type:'bulkDrag', nodeIds, startMouseX, startMouseY, startPositions:{id:{x,y}} }
+
+  const canvasDivRef = useRef(null);
 
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
   useEffect(() => { panRef.current = pan; }, [pan]);
+  useEffect(() => { scaleRef.current = scale; }, [scale]);
+  useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
 
-  // ── Computed ───────────────────────────────────────────────────────────
+  // ── Computed ────────────────────────────────────────────────────────────
   const lanesWithOffset = useMemo(() => computeLaneOffsets(lanes), [lanes]);
   const phasesWithOffset = useMemo(() => computePhaseOffsets(phases), [phases]);
 
@@ -64,20 +82,113 @@ export default function App() {
   const criticalCount = enrichedNodes.filter((n) => n.isCritical).length;
   const completeCount = nodes.filter((n) => n.status === 'Complete').length;
 
-  // ── Canvas coord helper ─────────────────────────────────────────────────
-  // Canvas coords = client coords − pan (pan includes rail offsets)
+  // Focus mode: null when inactive; otherwise the set of node/edge IDs in focus
+  const focusedSet = useMemo(
+    () => focusedNodeId ? computeFocusedSet(focusedNodeId, edges) : null,
+    [focusedNodeId, edges]
+  );
+  const focusedNodeLabel = focusedNodeId
+    ? (nodes.find((n) => n.id === focusedNodeId)?.label ?? '')
+    : '';
+
+  // ── Coord helpers ───────────────────────────────────────────────────────
+  // Convert viewport client coords → canvas coords (accounts for pan + scale)
   function toCanvas(clientX, clientY) {
     const p = panRef.current;
-    return { x: clientX - p.x, y: clientY - p.y };
+    const s = scaleRef.current;
+    return { x: (clientX - p.x) / s, y: (clientY - p.y) / s };
   }
 
-  // ── Pan ─────────────────────────────────────────────────────────────────
+  // ── Zoom (Ctrl/Cmd + Scroll) ────────────────────────────────────────────
+  useEffect(() => {
+    const div = canvasDivRef.current;
+    if (!div) return;
+
+    function onWheel(e) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+
+      const oldScale = scaleRef.current;
+      const rawScale = oldScale + (e.deltaY < 0 ? SCALE_STEP : -SCALE_STEP);
+      const newScale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, +rawScale.toFixed(2)));
+      if (newScale === oldScale) return;
+
+      // Mouse position relative to the canvas div
+      const rect = div.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
+      // Current canvasPan (relative to canvas div, not app pan)
+      const cpx = panRef.current.x - LANE_RAIL_W;
+      const cpy = panRef.current.y - PHASE_RAIL_H;
+
+      const zf = newScale / oldScale;
+      const newCpx = mx - zf * (mx - cpx);
+      const newCpy = my - zf * (my - cpy);
+
+      scaleRef.current = newScale;
+      setScale(newScale);
+      setPan({ x: newCpx + LANE_RAIL_W, y: newCpy + PHASE_RAIL_H });
+    }
+
+    div.addEventListener('wheel', onWheel, { passive: false });
+    return () => div.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // ── Reset zoom ──────────────────────────────────────────────────────────
+  const handleResetZoom = useCallback(() => {
+    setScale(1);
+    scaleRef.current = 1;
+    setPan({ x: LANE_RAIL_W + 20, y: PHASE_RAIL_H + 20 });
+  }, []);
+
+  // ── Keyboard: Delete/Backspace bulk delete, Escape deselect ────────────
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      if (e.key === 'Escape') {
+        setSelectedIds(new Set());
+        setFocusedNodeId(null);
+        return;
+      }
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        setSelectedIds((prev) => {
+          if (prev.size === 0) return prev;
+          const count = prev.size;
+          setNodes((ns) => ns.filter((n) => !prev.has(n.id)));
+          setEdges((es) => es.filter((ed) => !prev.has(ed.from) && !prev.has(ed.to)));
+          setDeleteMessage(`Deleted ${count} node${count !== 1 ? 's' : ''}`);
+          setTimeout(() => setDeleteMessage(null), 2000);
+          return new Set();
+        });
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // ── Pan / selection rubber band (canvas background mousedown) ───────────
   const handleCanvasMouseDown = useCallback((e) => {
     const tag = e.target.tagName.toLowerCase();
-    // Only pan on SVG background elements; node groups stopPropagation
     if (tag !== 'svg' && tag !== 'rect' && tag !== 'line' && tag !== 'g') return;
-    // Don't start pan if something else is active
     if (rubberBandRef.current) return;
+
+    if (e.shiftKey) {
+      // Start bulk-select rubber band — clears focus mode (mutually exclusive)
+      setFocusedNodeId(null);
+      const pos = toCanvas(e.clientX, e.clientY);
+      selectRectRef.current = { x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y };
+      setSelectRect({ ...selectRectRef.current });
+      interactionRef.current = { type: 'selectRect' };
+      return;
+    }
+
+    // Plain canvas click → exit focus mode and clear selection, then pan
+    setFocusedNodeId(null);
+    setSelectedIds(new Set());
     interactionRef.current = {
       type: 'pan',
       startX: e.clientX,
@@ -88,6 +199,7 @@ export default function App() {
 
   const handleCanvasMouseMove = useCallback((e) => {
     const ix = interactionRef.current;
+    const s = scaleRef.current;
 
     if (ix?.type === 'pan') {
       setPan({
@@ -97,21 +209,39 @@ export default function App() {
     }
 
     if (ix?.type === 'nodeDrag') {
-      const dx = e.clientX - ix.startMouseX;
-      const dy = e.clientY - ix.startMouseY;
+      const dx = (e.clientX - ix.startMouseX) / s;
+      const dy = (e.clientY - ix.startMouseY) / s;
+      if (!ix.moved && (Math.abs(dx) > 4 / s || Math.abs(dy) > 4 / s)) ix.moved = true;
       setNodes((prev) => prev.map((n) =>
         n.id === ix.nodeId ? { ...n, x: ix.startNodeX + dx, y: ix.startNodeY + dy } : n
       ));
     }
 
     if (ix?.type === 'nodeResize') {
-      const dx = e.clientX - ix.startMouseX;
-      const dy = e.clientY - ix.startMouseY;
+      const dx = (e.clientX - ix.startMouseX) / s;
+      const dy = (e.clientY - ix.startMouseY) / s;
       setNodes((prev) => prev.map((n) =>
         n.id === ix.nodeId
           ? { ...n, w: Math.max(MIN_NODE_W, ix.startW + dx), h: Math.max(MIN_NODE_H, ix.startH + dy) }
           : n
       ));
+    }
+
+    if (ix?.type === 'bulkDrag') {
+      const dx = (e.clientX - ix.startMouseX) / s;
+      const dy = (e.clientY - ix.startMouseY) / s;
+      if (!ix.moved && (Math.abs(dx) > 4 / s || Math.abs(dy) > 4 / s)) ix.moved = true;
+      setNodes((prev) => prev.map((n) => {
+        const start = ix.startPositions[n.id];
+        if (!start) return n;
+        return { ...n, x: start.x + dx, y: start.y + dy };
+      }));
+    }
+
+    if (ix?.type === 'selectRect' && selectRectRef.current) {
+      const pos = toCanvas(e.clientX, e.clientY);
+      selectRectRef.current = { ...selectRectRef.current, x2: pos.x, y2: pos.y };
+      setSelectRect({ ...selectRectRef.current });
     }
 
     if (rubberBandRef.current) {
@@ -121,18 +251,83 @@ export default function App() {
     }
   }, []);
 
-  const handleCanvasMouseUp = useCallback(() => {
+  const handleCanvasMouseUp = useCallback((e) => {
+    const ix = interactionRef.current;
     interactionRef.current = null;
+
+    // Click detection: node drag or bulk drag that never moved → treat as click → focus mode
+    if ((ix?.type === 'nodeDrag' || ix?.type === 'bulkDrag') && !ix.moved) {
+      const clickedId = ix.nodeId ?? ix.clickedNodeId;
+      if (clickedId) {
+        setFocusedNodeId((prev) => (prev === clickedId ? null : clickedId));
+        setSelectedIds(new Set()); // entering focus clears bulk selection
+        return;
+      }
+    }
+
+    if (ix?.type === 'selectRect' && selectRectRef.current) {
+      const { x1, y1, x2, y2 } = selectRectRef.current;
+      const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+      const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
+      const hitIds = nodesRef.current
+        .filter((n) => {
+          const nw = n.w ?? DEFAULT_NODE_W;
+          const nh = n.h ?? DEFAULT_NODE_H;
+          return n.x < maxX && n.x + nw > minX && n.y < maxY && n.y + nh > minY;
+        })
+        .map((n) => n.id);
+      // Always additive (rubber band requires Shift to start)
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        hitIds.forEach((id) => next.add(id));
+        return next;
+      });
+      selectRectRef.current = null;
+      setSelectRect(null);
+    }
+
     if (rubberBandRef.current) {
       rubberBandRef.current = null;
       setRubberBand(null);
     }
   }, []);
 
-  // ── Node drag ───────────────────────────────────────────────────────────
+  // ── Node drag / shift-click / bulk drag ─────────────────────────────────
   const handleNodeMouseDown = useCallback((e, nodeId) => {
     if (rubberBandRef.current) return;
+
+    if (e.shiftKey) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(nodeId)) next.delete(nodeId); else next.add(nodeId);
+        return next;
+      });
+      return;
+    }
+
     e.preventDefault();
+
+    if (selectedIdsRef.current.has(nodeId)) {
+      // Bulk drag: move all selected nodes together
+      const positions = {};
+      for (const id of selectedIdsRef.current) {
+        const n = nodesRef.current.find((nd) => nd.id === id);
+        if (n) positions[id] = { x: n.x, y: n.y };
+      }
+      interactionRef.current = {
+        type: 'bulkDrag',
+        clickedNodeId: nodeId,
+        nodeIds: [...selectedIdsRef.current],
+        startMouseX: e.clientX,
+        startMouseY: e.clientY,
+        startPositions: positions,
+        moved: false,
+      };
+      return;
+    }
+
+    // Non-selected node: deselect all, single drag
+    setSelectedIds(new Set());
     const n = nodesRef.current.find((nd) => nd.id === nodeId);
     interactionRef.current = {
       type: 'nodeDrag',
@@ -141,6 +336,7 @@ export default function App() {
       startMouseY: e.clientY,
       startNodeX: n?.x ?? 0,
       startNodeY: n?.y ?? 0,
+      moved: false,
     };
   }, []);
 
@@ -216,6 +412,7 @@ export default function App() {
   const handleAddNode = useCallback(() => {
     const id = `n${++_nodeId}`;
     const p = panRef.current;
+    const s = scaleRef.current;
     const newNode = {
       id,
       label: 'New Task',
@@ -223,8 +420,8 @@ export default function App() {
       assignee: '',
       laneId: lanes[0]?.id ?? 'de',
       status: 'Not Started',
-      x: -p.x + window.innerWidth / 2 - DEFAULT_NODE_W / 2,
-      y: -p.y + window.innerHeight / 2 - DEFAULT_NODE_H / 2,
+      x: (window.innerWidth / 2 - p.x) / s - DEFAULT_NODE_W / 2,
+      y: (window.innerHeight / 2 - p.y) / s - DEFAULT_NODE_H / 2,
       w: DEFAULT_NODE_W,
       h: DEFAULT_NODE_H,
     };
@@ -243,7 +440,6 @@ export default function App() {
 
   const handleDeleteLane = useCallback((laneId) => {
     setLanes((prev) => prev.filter((l) => l.id !== laneId));
-    // Unassign nodes in deleted lane
     setNodes((prev) => prev.map((n) => n.laneId === laneId ? { ...n, laneId: null } : n));
   }, []);
 
@@ -279,13 +475,11 @@ export default function App() {
   }, [phases]);
 
   const editingNode = editingNodeId ? nodes.find((n) => n.id === editingNodeId) : null;
-
   const canvasPan = { x: pan.x - LANE_RAIL_W, y: pan.y - PHASE_RAIL_H };
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', background: '#0f1117' }}>
 
-      {/* Phase rail */}
       <PhaseRail
         phases={phasesWithOffset}
         panX={pan.x - LANE_RAIL_W}
@@ -294,7 +488,6 @@ export default function App() {
         onAddPhase={handleAddPhase}
       />
 
-      {/* Lane rail */}
       <LaneRail
         lanes={lanesWithOffset}
         panY={pan.y}
@@ -307,6 +500,7 @@ export default function App() {
 
       {/* Canvas area */}
       <div
+        ref={canvasDivRef}
         style={{
           position: 'absolute',
           top: PHASE_RAIL_H,
@@ -324,7 +518,12 @@ export default function App() {
           lanes={lanesWithOffset}
           phases={phasesWithOffset}
           pan={canvasPan}
+          scale={scale}
           rubberBand={rubberBand}
+          selectRect={selectRect}
+          selectedIds={selectedIds}
+          focusedNodeIds={focusedSet?.focusedNodeIds ?? null}
+          focusedEdgeIds={focusedSet?.focusedEdgeIds ?? null}
           onCanvasMouseDown={handleCanvasMouseDown}
           onCanvasMouseMove={handleCanvasMouseMove}
           onCanvasMouseUp={handleCanvasMouseUp}
@@ -337,10 +536,50 @@ export default function App() {
         />
       </div>
 
-      {/* Toolbar */}
-      <Toolbar onAddNode={handleAddNode} />
+      <Toolbar onAddNode={handleAddNode} scale={scale} onResetZoom={handleResetZoom} />
 
-      {/* Node edit panel */}
+      {/* Focus mode indicator chip */}
+      {focusedNodeId && (
+        <div
+          style={{
+            position: 'absolute',
+            top: PHASE_RAIL_H + 12,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '5px 12px',
+            background: '#1e2130',
+            border: '1px solid rgba(99,102,241,0.4)',
+            borderRadius: 20,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+            zIndex: 50,
+            fontSize: 12,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <span style={{ color: '#6366f1', fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Focus</span>
+          <span style={{ color: '#f1f5f9', fontWeight: 500 }}>{focusedNodeLabel}</span>
+          <button
+            onClick={() => setFocusedNodeId(null)}
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 4,
+              color: '#64748b',
+              fontSize: 10,
+              fontWeight: 600,
+              padding: '1px 6px',
+              cursor: 'pointer',
+              fontFamily: "'IBM Plex Sans', sans-serif",
+            }}
+          >
+            ESC
+          </button>
+        </div>
+      )}
+
       {editingNode && (
         <NodeEditPanel
           node={editingNode}
@@ -351,10 +590,8 @@ export default function App() {
         />
       )}
 
-      {/* Cycle warning */}
       {cycleWarning && <CycleBanner onDismiss={() => setCycleWarning(false)} />}
 
-      {/* Summary bar */}
       <SummaryBar
         projectEnd={projectEnd}
         criticalCount={criticalCount}
@@ -362,6 +599,8 @@ export default function App() {
         onThresholdChange={setNearCriticalThreshold}
         completeCount={completeCount}
         totalCount={nodes.length}
+        scale={scale}
+        deleteMessage={deleteMessage}
       />
     </div>
   );

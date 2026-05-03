@@ -36,6 +36,7 @@ export default function NodeCard({
   node,
   cpm,               // { ES, EF, LS, LF, slack, isCritical, isNearCritical } | null
   rubberBandActive,  // bool — show input anchor hint
+  isSelected,        // bool — render selection ring
   onMouseDown,       // (e, nodeId) => void  — node drag
   onDoubleClick,     // (nodeId) => void
   onResizeMouseDown, // (e, nodeId) => void
@@ -163,6 +164,17 @@ export default function NodeCard({
           </>
         )}
       </g>
+
+      {/* Selection ring (outside clip so it extends beyond card bounds) */}
+      {isSelected && (
+        <rect
+          x={-2} y={-2} width={w + 4} height={h + 4} rx={11}
+          fill="none"
+          stroke="#3b82f6"
+          strokeWidth={2}
+          style={{ pointerEvents: 'none' }}
+        />
+      )}
 
       {/* Resize handle (bottom-right, not clipped) */}
       <rect

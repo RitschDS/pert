@@ -1,4 +1,7 @@
-export default function Toolbar({ onAddNode }) {
+export default function Toolbar({ onAddNode, scale, onResetZoom }) {
+  const pct = Math.round((scale ?? 1) * 100);
+  const isDefaultZoom = pct === 100;
+
   return (
     <div
       className="absolute top-4 left-4 flex gap-2 items-center px-3 py-2 rounded-xl"
@@ -24,9 +27,34 @@ export default function Toolbar({ onAddNode }) {
         </svg>
       </ToolBtn>
 
+      <Divider />
+
+      {/* Zoom display + reset */}
+      <button
+        title="Reset Zoom (100%)"
+        onClick={onResetZoom}
+        style={{
+          background: isDefaultZoom ? 'transparent' : 'rgba(99,102,241,0.12)',
+          border: isDefaultZoom ? '1px solid transparent' : '1px solid rgba(99,102,241,0.3)',
+          borderRadius: 6,
+          color: isDefaultZoom ? '#475569' : '#818cf8',
+          fontSize: 11,
+          fontWeight: 600,
+          fontFamily: "'IBM Plex Sans', sans-serif",
+          padding: '2px 8px',
+          cursor: 'pointer',
+          minWidth: 44,
+          textAlign: 'center',
+          transition: 'all 0.15s',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(99,102,241,0.18)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = isDefaultZoom ? 'transparent' : 'rgba(99,102,241,0.12)'; }}
+      >
+        {pct}%
+      </button>
+
       <div
-        className="text-xs text-slate-600 ml-1"
-        style={{ fontSize: 10, lineHeight: '12px', maxWidth: 90 }}
+        style={{ fontSize: 10, lineHeight: '12px', maxWidth: 86, color: '#334155' }}
       >
         Hover node to<br />draw edges
       </div>
