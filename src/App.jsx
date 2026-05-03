@@ -3,6 +3,7 @@ import { INITIAL_NODES, INITIAL_EDGES, INITIAL_LANES, INITIAL_PHASES } from './d
 import { wouldCreateCycle } from './utils/graph';
 import { computeLaneOffsets, computePhaseOffsets, nodeOutputAnchor, nodeInputAnchor } from './utils/layout';
 import { computeCPM } from './utils/cpm';
+import { computeFocusedSet } from './utils/focus';
 import { LANE_RAIL_W, PHASE_RAIL_H, SUMMARY_BAR_H, MIN_NODE_W, MIN_NODE_H, DEFAULT_NODE_W, DEFAULT_NODE_H } from './utils/constants';
 import PertCanvas from './components/PertCanvas';
 import Toolbar from './components/Toolbar';
@@ -35,6 +36,7 @@ export default function App() {
   const [cycleWarning, setCycleWarning] = useState(false);
   const [nearCriticalThreshold, setNearCriticalThreshold] = useState(2);
   const [deleteMessage, setDeleteMessage] = useState(null);
+  const [focusedNodeId, setFocusedNodeId] = useState(null);
 
   // Stable refs so event handlers don't go stale
   const nodesRef = useRef(nodes);
@@ -79,6 +81,15 @@ export default function App() {
 
   const criticalCount = enrichedNodes.filter((n) => n.isCritical).length;
   const completeCount = nodes.filter((n) => n.status === 'Complete').length;
+
+  // Focus mode: null when inactive; otherwise the set of node/edge IDs in focus
+  const focusedSet = useMemo(
+    () => focusedNodeId ? computeFocusedSet(focusedNodeId, edges) : null,
+    [focusedNodeId, edges]
+  );
+  const focusedNodeLabel = focusedNodeId
+    ? (nodes.find((n) => n.id === focusedNodeId)?.label ?? '')
+    : '';
 
   // ── Coord helpers ───────────────────────────────────────────────────────
   // Convert viewport client coords → canvas coords (accounts for pan + scale)
@@ -138,6 +149,7 @@ export default function App() {
 
       if (e.key === 'Escape') {
         setSelectedIds(new Set());
+        setFocusedNodeId(null);
         return;
       }
 
@@ -165,7 +177,8 @@ export default function App() {
     if (rubberBandRef.current) return;
 
     if (e.shiftKey) {
-      // Start bulk-select rubber band
+      // Start bulk-select rubber band — clears focus mode (mutually exclusive)
+      setFocusedNodeId(null);
       const pos = toCanvas(e.clientX, e.clientY);
       selectRectRef.current = { x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y };
       setSelectRect({ ...selectRectRef.current });
@@ -173,7 +186,8 @@ export default function App() {
       return;
     }
 
-    // Clear selection on plain canvas click, then pan
+    // Plain canvas click → exit focus mode and clear selection, then pan
+    setFocusedNodeId(null);
     setSelectedIds(new Set());
     interactionRef.current = {
       type: 'pan',
@@ -197,6 +211,7 @@ export default function App() {
     if (ix?.type === 'nodeDrag') {
       const dx = (e.clientX - ix.startMouseX) / s;
       const dy = (e.clientY - ix.startMouseY) / s;
+      if (!ix.moved && (Math.abs(dx) > 4 / s || Math.abs(dy) > 4 / s)) ix.moved = true;
       setNodes((prev) => prev.map((n) =>
         n.id === ix.nodeId ? { ...n, x: ix.startNodeX + dx, y: ix.startNodeY + dy } : n
       ));
@@ -215,6 +230,7 @@ export default function App() {
     if (ix?.type === 'bulkDrag') {
       const dx = (e.clientX - ix.startMouseX) / s;
       const dy = (e.clientY - ix.startMouseY) / s;
+      if (!ix.moved && (Math.abs(dx) > 4 / s || Math.abs(dy) > 4 / s)) ix.moved = true;
       setNodes((prev) => prev.map((n) => {
         const start = ix.startPositions[n.id];
         if (!start) return n;
@@ -238,6 +254,16 @@ export default function App() {
   const handleCanvasMouseUp = useCallback((e) => {
     const ix = interactionRef.current;
     interactionRef.current = null;
+
+    // Click detection: node drag or bulk drag that never moved → treat as click → focus mode
+    if ((ix?.type === 'nodeDrag' || ix?.type === 'bulkDrag') && !ix.moved) {
+      const clickedId = ix.nodeId ?? ix.clickedNodeId;
+      if (clickedId) {
+        setFocusedNodeId((prev) => (prev === clickedId ? null : clickedId));
+        setSelectedIds(new Set()); // entering focus clears bulk selection
+        return;
+      }
+    }
 
     if (ix?.type === 'selectRect' && selectRectRef.current) {
       const { x1, y1, x2, y2 } = selectRectRef.current;
@@ -290,10 +316,12 @@ export default function App() {
       }
       interactionRef.current = {
         type: 'bulkDrag',
+        clickedNodeId: nodeId,
         nodeIds: [...selectedIdsRef.current],
         startMouseX: e.clientX,
         startMouseY: e.clientY,
         startPositions: positions,
+        moved: false,
       };
       return;
     }
@@ -308,6 +336,7 @@ export default function App() {
       startMouseY: e.clientY,
       startNodeX: n?.x ?? 0,
       startNodeY: n?.y ?? 0,
+      moved: false,
     };
   }, []);
 
@@ -493,6 +522,8 @@ export default function App() {
           rubberBand={rubberBand}
           selectRect={selectRect}
           selectedIds={selectedIds}
+          focusedNodeIds={focusedSet?.focusedNodeIds ?? null}
+          focusedEdgeIds={focusedSet?.focusedEdgeIds ?? null}
           onCanvasMouseDown={handleCanvasMouseDown}
           onCanvasMouseMove={handleCanvasMouseMove}
           onCanvasMouseUp={handleCanvasMouseUp}
@@ -506,6 +537,48 @@ export default function App() {
       </div>
 
       <Toolbar onAddNode={handleAddNode} scale={scale} onResetZoom={handleResetZoom} />
+
+      {/* Focus mode indicator chip */}
+      {focusedNodeId && (
+        <div
+          style={{
+            position: 'absolute',
+            top: PHASE_RAIL_H + 12,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '5px 12px',
+            background: '#1e2130',
+            border: '1px solid rgba(99,102,241,0.4)',
+            borderRadius: 20,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+            zIndex: 50,
+            fontSize: 12,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <span style={{ color: '#6366f1', fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Focus</span>
+          <span style={{ color: '#f1f5f9', fontWeight: 500 }}>{focusedNodeLabel}</span>
+          <button
+            onClick={() => setFocusedNodeId(null)}
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 4,
+              color: '#64748b',
+              fontSize: 10,
+              fontWeight: 600,
+              padding: '1px 6px',
+              cursor: 'pointer',
+              fontFamily: "'IBM Plex Sans', sans-serif",
+            }}
+          >
+            ESC
+          </button>
+        </div>
+      )}
 
       {editingNode && (
         <NodeEditPanel

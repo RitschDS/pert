@@ -15,6 +15,8 @@ export default function PertCanvas({
   rubberBand,      // null | { fromNodeId, fromPos, currentPos }
   selectRect,      // null | { x1,y1,x2,y2 } — bulk-select rubber band (canvas coords)
   selectedIds,     // Set<string>
+  focusedNodeIds,  // Set<string> | null
+  focusedEdgeIds,  // Set<string> | null
   onCanvasMouseDown,
   onCanvasMouseMove,
   onCanvasMouseUp,
@@ -92,16 +94,18 @@ export default function PertCanvas({
           const fromNode = nodeMap[edge.from];
           const toNode = nodeMap[edge.to];
           if (!fromNode || !toNode) return null;
+          const edgeFocusOpacity = focusedEdgeIds && !focusedEdgeIds.has(edge.id) ? 0.1 : 1;
           return (
-            <EdgePath
-              key={edge.id}
-              edge={edge}
-              from={nodeOutputAnchor(fromNode)}
-              to={nodeInputAnchor(toNode)}
-              isCritical={criticalEdgeIds.has(edge.id)}
-              isNearCritical={nearCriticalEdgeIds.has(edge.id)}
-              onEdgeClick={onEdgeClick}
-            />
+            <g key={edge.id} opacity={edgeFocusOpacity}>
+              <EdgePath
+                edge={edge}
+                from={nodeOutputAnchor(fromNode)}
+                to={nodeInputAnchor(toNode)}
+                isCritical={criticalEdgeIds.has(edge.id)}
+                isNearCritical={nearCriticalEdgeIds.has(edge.id)}
+                onEdgeClick={onEdgeClick}
+              />
+            </g>
           );
         })}
 
@@ -140,20 +144,24 @@ export default function PertCanvas({
         })()}
 
         {/* Nodes */}
-        {nodes.map((node) => (
-          <NodeCard
-            key={node.id}
-            node={node}
-            cpm={cpmMap.get(node.id) ?? null}
-            rubberBandActive={!!rubberBand}
-            isSelected={selectedIds.has(node.id)}
-            onMouseDown={onNodeMouseDown}
-            onDoubleClick={onNodeDoubleClick}
-            onResizeMouseDown={onResizeMouseDown}
-            onOutputAnchorMouseDown={onOutputAnchorMouseDown}
-            onInputAnchorMouseUp={onInputAnchorMouseUp}
-          />
-        ))}
+        {nodes.map((node) => {
+          const nodeFocusOpacity = focusedNodeIds && !focusedNodeIds.has(node.id) ? 0.1 : 1;
+          return (
+            <g key={node.id} opacity={nodeFocusOpacity}>
+              <NodeCard
+                node={node}
+                cpm={cpmMap.get(node.id) ?? null}
+                rubberBandActive={!!rubberBand}
+                isSelected={selectedIds.has(node.id)}
+                onMouseDown={onNodeMouseDown}
+                onDoubleClick={onNodeDoubleClick}
+                onResizeMouseDown={onResizeMouseDown}
+                onOutputAnchorMouseDown={onOutputAnchorMouseDown}
+                onInputAnchorMouseUp={onInputAnchorMouseUp}
+              />
+            </g>
+          );
+        })}
 
       </g>
     </svg>
