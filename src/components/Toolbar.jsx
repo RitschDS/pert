@@ -1,6 +1,7 @@
-export default function Toolbar({ onAddNode, scale, onResetZoom }) {
+export default function Toolbar({ onAddNode, scale, onResetZoom, user, onSignOut }) {
   const pct = Math.round((scale ?? 1) * 100);
   const isDefaultZoom = pct === 100;
+  const displayName = user?.user_metadata?.full_name || user?.email || '';
 
   return (
     <div
@@ -58,6 +59,20 @@ export default function Toolbar({ onAddNode, scale, onResetZoom }) {
       >
         Hover node to<br />draw edges
       </div>
+
+      <Divider />
+
+      {/* User info + sign out */}
+      <span style={{ fontSize: 11, color: '#475569', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {displayName}
+      </span>
+      <ToolBtn title="Sign out" onClick={onSignOut}>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M5 2H2.5A1.5 1.5 0 0 0 1 3.5v7A1.5 1.5 0 0 0 2.5 12H5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+          <path d="M9.5 9.5 13 7l-3.5-2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+          <line x1="13" y1="7" x2="5" y2="7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+        </svg>
+      </ToolBtn>
     </div>
   );
 }

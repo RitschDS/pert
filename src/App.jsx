@@ -5,6 +5,7 @@ import { computeLaneOffsets, computePhaseOffsets, nodeOutputAnchor, nodeInputAnc
 import { computeCPM } from './utils/cpm';
 import { computeFocusedSet } from './utils/focus';
 import { LANE_RAIL_W, PHASE_RAIL_H, SUMMARY_BAR_H, MIN_NODE_W, MIN_NODE_H, DEFAULT_NODE_W, DEFAULT_NODE_H } from './utils/constants';
+import { supabase } from './supabase';
 import PertCanvas from './components/PertCanvas';
 import Toolbar from './components/Toolbar';
 import NodeEditPanel from './components/NodeEditPanel';
@@ -12,6 +13,7 @@ import CycleBanner from './components/CycleBanner';
 import LaneRail from './components/LaneRail';
 import PhaseRail from './components/PhaseRail';
 import SummaryBar from './components/SummaryBar';
+import LoginScreen from './components/LoginScreen';
 
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 3;
@@ -23,6 +25,23 @@ let _laneId = 10;
 let _phaseId = 10;
 
 export default function App() {
+  const [session, setSession] = useState(undefined); // undefined = loading, null = no session
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (session === undefined) return null; // still loading
+  if (!session) return <LoginScreen />;
+
+  return <AppCanvas user={session.user} />;
+}
+
+function AppCanvas({ user }) {
   const [nodes, setNodes] = useState(INITIAL_NODES);
   const [edges, setEdges] = useState(INITIAL_EDGES);
   const [lanes, setLanes] = useState(INITIAL_LANES);
@@ -140,6 +159,11 @@ export default function App() {
     setScale(1);
     scaleRef.current = 1;
     setPan({ x: LANE_RAIL_W + 20, y: PHASE_RAIL_H + 20 });
+  }, []);
+
+  // ── Sign out ─────────────────────────────────────────────────────────────
+  const handleSignOut = useCallback(() => {
+    supabase.auth.signOut();
   }, []);
 
   // ── Keyboard: Delete/Backspace bulk delete, Escape deselect ────────────
@@ -536,7 +560,7 @@ export default function App() {
         />
       </div>
 
-      <Toolbar onAddNode={handleAddNode} scale={scale} onResetZoom={handleResetZoom} />
+      <Toolbar onAddNode={handleAddNode} scale={scale} onResetZoom={handleResetZoom} user={user} onSignOut={handleSignOut} />
 
       {/* Focus mode indicator chip */}
       {focusedNodeId && (
