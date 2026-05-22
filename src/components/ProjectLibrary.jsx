@@ -41,7 +41,7 @@ export default function ProjectLibrary({ user, onOpenProject, onSignOut }) {
       .from('projects')
       .select('id, name, updated_at')
       .order('updated_at', { ascending: false });
-    if (error) setError('Unable to connect to the server. Check your connection and try again.');
+    if (error) setError(`Unable to connect: ${error.message} (code: ${error.code})`);
     else setProjects(data ?? []);
     setLoading(false);
   }
