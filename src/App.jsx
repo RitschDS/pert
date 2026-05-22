@@ -14,6 +14,7 @@ import LaneRail from './components/LaneRail';
 import PhaseRail from './components/PhaseRail';
 import SummaryBar from './components/SummaryBar';
 import LoginScreen from './components/LoginScreen';
+import ProjectLibrary from './components/ProjectLibrary';
 
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 3;
@@ -26,28 +27,54 @@ let _phaseId = 10;
 
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = loading, null = no session
+  const [view, setView] = useState('library');        // 'library' | 'canvas'
+  const [currentProject, setCurrentProject] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (!session) { setView('library'); setCurrentProject(null); }
     });
     return () => subscription.unsubscribe();
   }, []);
 
-  if (session === undefined) return null; // still loading
+  if (session === undefined) return null;
   if (!session) return <LoginScreen />;
 
-  return <AppCanvas user={session.user} />;
+  if (view === 'canvas' && currentProject) {
+    return (
+      <AppCanvas
+        user={session.user}
+        project={currentProject}
+        onBack={() => { setView('library'); setCurrentProject(null); }}
+      />
+    );
+  }
+
+  return (
+    <ProjectLibrary
+      user={session.user}
+      onOpenProject={(project) => { setCurrentProject(project); setView('canvas'); }}
+      onSignOut={() => supabase.auth.signOut()}
+    />
+  );
 }
 
-function AppCanvas({ user }) {
-  const [nodes, setNodes] = useState(INITIAL_NODES);
-  const [edges, setEdges] = useState(INITIAL_EDGES);
-  const [lanes, setLanes] = useState(INITIAL_LANES);
-  const [phases, setPhases] = useState(INITIAL_PHASES);
-  const [pan, setPan] = useState({ x: LANE_RAIL_W + 20, y: PHASE_RAIL_H + 20 });
-  const [scale, setScale] = useState(1);
+function AppCanvas({ user, project, onBack }) {
+  const projectData = project?.data ?? {};
+
+  const [nodes, setNodes] = useState(projectData.nodes ?? INITIAL_NODES);
+  const [edges, setEdges] = useState(projectData.edges ?? INITIAL_EDGES);
+  const [lanes, setLanes] = useState(projectData.lanes ?? INITIAL_LANES);
+  const [phases, setPhases] = useState(projectData.phases ?? INITIAL_PHASES);
+  const [pan, setPan] = useState(
+    projectData.viewport
+      ? { x: projectData.viewport.panX, y: projectData.viewport.panY }
+      : { x: LANE_RAIL_W + 20, y: PHASE_RAIL_H + 20 }
+  );
+  const [scale, setScale] = useState(projectData.viewport?.scale ?? 1);
+  const [projectName, setProjectName] = useState(project?.name ?? 'Untitled Project');
   const [editingNodeId, setEditingNodeId] = useState(null);
   const [rubberBand, setRubberBand] = useState(null);        // anchor edge rubber band
   const [selectRect, setSelectRect] = useState(null);        // bulk-select rubber band
@@ -61,7 +88,7 @@ function AppCanvas({ user }) {
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   const panRef = useRef(pan);
-  const scaleRef = useRef(1);
+  const scaleRef = useRef(projectData.viewport?.scale ?? 1);
   const selectedIdsRef = useRef(selectedIds);
   const rubberBandRef = useRef(null);
   const selectRectRef = useRef(null);
@@ -75,11 +102,39 @@ function AppCanvas({ user }) {
 
   const canvasDivRef = useRef(null);
 
+  // ── Save state ──────────────────────────────────────────────────────────
+  const [saveStatus, setSaveStatus] = useState('idle'); // 'idle'|'unsaved'|'saving'|'saved'|'error'
+  const [savedAt, setSavedAt] = useState(null);
+  const latestSaveDataRef = useRef(null);
+  const saveTimerRef = useRef(null);
+  const retryTimerRef = useRef(null);
+  const isFirstRenderRef = useRef(true);
+
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
   useEffect(() => { panRef.current = pan; }, [pan]);
   useEffect(() => { scaleRef.current = scale; }, [scale]);
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
+
+  // Sync module-level ID counters so new IDs don't collide with loaded data
+  useEffect(() => {
+    for (const n of (projectData.nodes ?? [])) {
+      const num = parseInt(n.id.replace('n', ''), 10);
+      if (!isNaN(num) && num > _nodeId) _nodeId = num;
+    }
+    for (const e of (projectData.edges ?? [])) {
+      const num = parseInt(e.id.replace('e', ''), 10);
+      if (!isNaN(num) && num > _edgeId) _edgeId = num;
+    }
+    for (const l of (projectData.lanes ?? [])) {
+      const num = parseInt(l.id.replace('lane', ''), 10);
+      if (!isNaN(num) && num > _laneId) _laneId = num;
+    }
+    for (const p of (projectData.phases ?? [])) {
+      const num = parseInt(p.id.replace('phase', ''), 10);
+      if (!isNaN(num) && num > _phaseId) _phaseId = num;
+    }
+  }, []); // eslint-disable-line -- projectData is stable for component lifetime
 
   // ── Computed ────────────────────────────────────────────────────────────
   const lanesWithOffset = useMemo(() => computeLaneOffsets(lanes), [lanes]);
@@ -164,6 +219,64 @@ function AppCanvas({ user }) {
   // ── Sign out ─────────────────────────────────────────────────────────────
   const handleSignOut = useCallback(() => {
     supabase.auth.signOut();
+  }, []);
+
+  // ── Save ─────────────────────────────────────────────────────────────────
+  const performSave = useCallback(async () => {
+    if (!latestSaveDataRef.current) return;
+    setSaveStatus('saving');
+    const { name, data } = latestSaveDataRef.current;
+    const { error } = await supabase
+      .from('projects')
+      .upsert({ id: project.id, user_id: user.id, name, data });
+    if (error) {
+      setSaveStatus('error');
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = setTimeout(performSave, 5000);
+    } else {
+      setSaveStatus('saved');
+      setSavedAt(new Date());
+      clearTimeout(retryTimerRef.current);
+    }
+  }, []); // project.id and user.id are stable for the lifetime of this component
+
+  const handleManualSave = useCallback(() => {
+    clearTimeout(saveTimerRef.current);
+    if (latestSaveDataRef.current) performSave();
+  }, [performSave]);
+
+  const handleBack = useCallback(() => {
+    if (saveStatus === 'unsaved' || saveStatus === 'saving') {
+      if (!window.confirm('You have unsaved changes. Leave anyway?')) return;
+    }
+    clearTimeout(saveTimerRef.current);
+    clearTimeout(retryTimerRef.current);
+    onBack();
+  }, [saveStatus, onBack]);
+
+  // Auto-save: debounce all canvas state changes by 2 seconds
+  useEffect(() => {
+    if (isFirstRenderRef.current) { isFirstRenderRef.current = false; return; }
+    latestSaveDataRef.current = {
+      name: projectName,
+      data: {
+        version: 1,
+        nodes,
+        edges,
+        lanes,
+        phases,
+        nearCriticalThreshold,
+        viewport: { panX: pan.x, panY: pan.y, scale },
+      },
+    };
+    setSaveStatus('unsaved');
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(performSave, 2000);
+  }, [nodes, edges, lanes, phases, nearCriticalThreshold, pan, scale, projectName]); // eslint-disable-line
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => { clearTimeout(saveTimerRef.current); clearTimeout(retryTimerRef.current); };
   }, []);
 
   // ── Keyboard: Delete/Backspace bulk delete, Escape deselect ────────────
@@ -560,7 +673,19 @@ function AppCanvas({ user }) {
         />
       </div>
 
-      <Toolbar onAddNode={handleAddNode} scale={scale} onResetZoom={handleResetZoom} user={user} onSignOut={handleSignOut} />
+      <Toolbar
+        onAddNode={handleAddNode}
+        scale={scale}
+        onResetZoom={handleResetZoom}
+        user={user}
+        onSignOut={handleSignOut}
+        onBack={handleBack}
+        projectName={projectName}
+        onProjectNameChange={setProjectName}
+        saveStatus={saveStatus}
+        savedAt={savedAt}
+        onSave={handleManualSave}
+      />
 
       {/* Focus mode indicator chip */}
       {focusedNodeId && (
