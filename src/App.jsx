@@ -4,7 +4,8 @@ import { wouldCreateCycle } from './utils/graph';
 import { computeLaneOffsets, computePhaseOffsets, nodeOutputAnchor, nodeInputAnchor } from './utils/layout';
 import { computeCPM } from './utils/cpm';
 import { computeFocusedSet } from './utils/focus';
-import { LANE_RAIL_W, PHASE_RAIL_H, SUMMARY_BAR_H, MIN_NODE_W, MIN_NODE_H, DEFAULT_NODE_W, DEFAULT_NODE_H } from './utils/constants';
+import { LANE_RAIL_W, PHASE_RAIL_H, SUMMARY_BAR_H, MIN_NODE_W, MIN_NODE_H, DEFAULT_NODE_W, DEFAULT_NODE_H, DEFAULT_EXT_W, DEFAULT_EXT_H } from './utils/constants';
+import { isoToday } from './utils/dateUtils';
 import { supabase } from './supabase';
 import PertCanvas from './components/PertCanvas';
 import Toolbar from './components/Toolbar';
@@ -15,6 +16,7 @@ import PhaseRail from './components/PhaseRail';
 import SummaryBar from './components/SummaryBar';
 import LoginScreen from './components/LoginScreen';
 import ProjectLibrary from './components/ProjectLibrary';
+import ExternalDependencyEditPanel from './components/ExternalDependencyEditPanel';
 
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 3;
@@ -75,6 +77,8 @@ function AppCanvas({ user, project, onBack }) {
   );
   const [scale, setScale] = useState(projectData.viewport?.scale ?? 1);
   const [projectName, setProjectName] = useState(project?.name ?? 'Untitled Project');
+  const [projectStartDate, setProjectStartDate] = useState(projectData.projectStartDate ?? isoToday());
+  const [simulation, setSimulation] = useState(null); // { nodeId, slippedDate, originalDate, nodeLabel }
   const [editingNodeId, setEditingNodeId] = useState(null);
   const [rubberBand, setRubberBand] = useState(null);        // anchor edge rubber band
   const [selectRect, setSelectRect] = useState(null);        // bulk-select rubber band
@@ -140,9 +144,23 @@ function AppCanvas({ user, project, onBack }) {
   const lanesWithOffset = useMemo(() => computeLaneOffsets(lanes), [lanes]);
   const phasesWithOffset = useMemo(() => computePhaseOffsets(phases), [phases]);
 
+  // Baseline CPM (no simulation) — used for impact calculation
+  const { projectEnd: baselineProjectEnd } = useMemo(
+    () => computeCPM(nodes, edges, nearCriticalThreshold, projectStartDate),
+    [nodes, edges, nearCriticalThreshold, projectStartDate]
+  );
+
+  // Apply simulation override if active
+  const nodesForCPM = useMemo(() => {
+    if (!simulation) return nodes;
+    return nodes.map(n =>
+      n.id === simulation.nodeId ? { ...n, readyDate: simulation.slippedDate } : n
+    );
+  }, [nodes, simulation]);
+
   const { enriched: enrichedNodes, criticalEdgeIds, nearCriticalEdgeIds, projectEnd } = useMemo(
-    () => computeCPM(nodes, edges, nearCriticalThreshold),
-    [nodes, edges, nearCriticalThreshold]
+    () => computeCPM(nodesForCPM, edges, nearCriticalThreshold, projectStartDate),
+    [nodesForCPM, edges, nearCriticalThreshold, projectStartDate]
   );
 
   const cpmMap = useMemo(() => {
@@ -266,13 +284,14 @@ function AppCanvas({ user, project, onBack }) {
         lanes,
         phases,
         nearCriticalThreshold,
+        projectStartDate,
         viewport: { panX: pan.x, panY: pan.y, scale },
       },
     };
     setSaveStatus('unsaved');
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(performSave, 2000);
-  }, [nodes, edges, lanes, phases, nearCriticalThreshold, pan, scale, projectName]); // eslint-disable-line
+  }, [nodes, edges, lanes, phases, nearCriticalThreshold, pan, scale, projectName, projectStartDate]); // eslint-disable-line
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -552,6 +571,7 @@ function AppCanvas({ user, project, onBack }) {
     const s = scaleRef.current;
     const newNode = {
       id,
+      type: 'task',
       label: 'New Task',
       duration: 3,
       assignee: '',
@@ -565,6 +585,35 @@ function AppCanvas({ user, project, onBack }) {
     setNodes((prev) => [...prev, newNode]);
     setEditingNodeId(id);
   }, [lanes]);
+
+  const handleAddExternalNode = useCallback(() => {
+    const id = `n${++_nodeId}`;
+    const p = panRef.current;
+    const s = scaleRef.current;
+    const newNode = {
+      id,
+      type: 'external',
+      label: 'External Dependency',
+      readyDate: isoToday(),
+      assignee: '',
+      status: 'Not Started',
+      x: (window.innerWidth / 2 - p.x) / s - DEFAULT_EXT_W / 2,
+      y: (window.innerHeight / 2 - p.y) / s - DEFAULT_EXT_H / 2,
+      w: DEFAULT_EXT_W,
+      h: DEFAULT_EXT_H,
+    };
+    setNodes((prev) => [...prev, newNode]);
+    setEditingNodeId(id);
+  }, []);
+
+  // ── Simulation ───────────────────────────────────────────────────────────
+  const handleSimulate = useCallback((nodeId, slippedDate, originalDate, nodeLabel) => {
+    setSimulation({ nodeId, slippedDate, originalDate, nodeLabel });
+  }, []);
+
+  const handleStopSimulation = useCallback(() => {
+    setSimulation(null);
+  }, []);
 
   // ── Lane operations ─────────────────────────────────────────────────────
   const handleResizeLane = useCallback((laneId, newH) => {
@@ -661,6 +710,7 @@ function AppCanvas({ user, project, onBack }) {
           selectedIds={selectedIds}
           focusedNodeIds={focusedSet?.focusedNodeIds ?? null}
           focusedEdgeIds={focusedSet?.focusedEdgeIds ?? null}
+          projectStartDate={projectStartDate}
           onCanvasMouseDown={handleCanvasMouseDown}
           onCanvasMouseMove={handleCanvasMouseMove}
           onCanvasMouseUp={handleCanvasMouseUp}
@@ -671,10 +721,23 @@ function AppCanvas({ user, project, onBack }) {
           onInputAnchorMouseUp={handleInputAnchorMouseUp}
           onEdgeClick={handleEdgeClick}
         />
+
+        {/* Simulation banner */}
+        {simulation && (
+          <div style={{
+            position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)',
+            borderRadius: 8, padding: '6px 14px', color: '#f59e0b', fontSize: 11, fontWeight: 600,
+            zIndex: 45, whiteSpace: 'nowrap', pointerEvents: 'none',
+          }}>
+            Simulation mode — not saved
+          </div>
+        )}
       </div>
 
       <Toolbar
         onAddNode={handleAddNode}
+        onAddExternalNode={handleAddExternalNode}
         scale={scale}
         onResetZoom={handleResetZoom}
         user={user}
@@ -685,6 +748,8 @@ function AppCanvas({ user, project, onBack }) {
         saveStatus={saveStatus}
         savedAt={savedAt}
         onSave={handleManualSave}
+        projectStartDate={projectStartDate}
+        onProjectStartDateChange={setProjectStartDate}
       />
 
       {/* Focus mode indicator chip */}
@@ -729,7 +794,17 @@ function AppCanvas({ user, project, onBack }) {
         </div>
       )}
 
-      {editingNode && (
+      {editingNode && (editingNode.type ?? 'task') === 'external' ? (
+        <ExternalDependencyEditPanel
+          node={editingNode}
+          onSave={handleSaveNode}
+          onDelete={handleDeleteNode}
+          onClose={() => setEditingNodeId(null)}
+          simulation={simulation}
+          onSimulate={handleSimulate}
+          onStopSimulation={handleStopSimulation}
+        />
+      ) : editingNode ? (
         <NodeEditPanel
           node={editingNode}
           lanes={lanes}
@@ -737,12 +812,13 @@ function AppCanvas({ user, project, onBack }) {
           onDelete={handleDeleteNode}
           onClose={() => setEditingNodeId(null)}
         />
-      )}
+      ) : null}
 
       {cycleWarning && <CycleBanner onDismiss={() => setCycleWarning(false)} />}
 
       <SummaryBar
         projectEnd={projectEnd}
+        projectStartDate={projectStartDate}
         criticalCount={criticalCount}
         nearCriticalThreshold={nearCriticalThreshold}
         onThresholdChange={setNearCriticalThreshold}
@@ -750,6 +826,9 @@ function AppCanvas({ user, project, onBack }) {
         totalCount={nodes.length}
         scale={scale}
         deleteMessage={deleteMessage}
+        externalNodes={nodes.filter(n => n.type === 'external')}
+        simulation={simulation}
+        baselineProjectEnd={baselineProjectEnd}
       />
     </div>
   );

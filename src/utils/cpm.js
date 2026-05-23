@@ -1,8 +1,6 @@
-/**
- * Compute CPM (Critical Path Method) for the given nodes and edges.
- * Returns enriched nodes with ES/EF/LS/LF/slack and sets of critical/near-critical edge IDs.
- */
-export function computeCPM(nodes, edges, nearCriticalThreshold = 2) {
+import { businessDayOffset } from './dateUtils';
+
+export function computeCPM(nodes, edges, nearCriticalThreshold = 2, projectStartDate = null) {
   if (!nodes.length) {
     return { enriched: [], criticalEdgeIds: new Set(), nearCriticalEdgeIds: new Set(), projectEnd: 0 };
   }
@@ -41,11 +39,23 @@ export function computeCPM(nodes, edges, nearCriticalThreshold = 2) {
   const ES = {};
   const EF = {};
 
+  function effectiveDur(node) {
+    if (node.status === 'Complete' || node.type === 'external') return 0;
+    return node.duration || 0;
+  }
+
   // Forward pass
   for (const id of topoOrder) {
-    const dur = nodeMap[id].status === 'Complete' ? 0 : (nodeMap[id].duration || 0);
-    ES[id] = predecessors[id].length ? Math.max(...predecessors[id].map((p) => EF[p] ?? 0)) : 0;
-    EF[id] = ES[id] + dur;
+    const node = nodeMap[id];
+    const predMax = predecessors[id].length
+      ? Math.max(...predecessors[id].map((p) => EF[p] ?? 0))
+      : 0;
+    if (node.type === 'external' && node.readyDate && projectStartDate) {
+      ES[id] = Math.max(predMax, businessDayOffset(projectStartDate, node.readyDate));
+    } else {
+      ES[id] = predMax;
+    }
+    EF[id] = ES[id] + effectiveDur(node);
   }
 
   const projectEnd = topoOrder.length ? Math.max(...topoOrder.map((id) => EF[id] ?? 0)) : 0;
@@ -55,9 +65,11 @@ export function computeCPM(nodes, edges, nearCriticalThreshold = 2) {
 
   // Backward pass
   for (const id of [...topoOrder].reverse()) {
-    const dur = nodeMap[id].status === 'Complete' ? 0 : (nodeMap[id].duration || 0);
-    LF[id] = successors[id].length ? Math.min(...successors[id].map((s) => LS[s] ?? projectEnd)) : projectEnd;
-    LS[id] = LF[id] - dur;
+    const node = nodeMap[id];
+    LF[id] = successors[id].length
+      ? Math.min(...successors[id].map((s) => LS[s] ?? projectEnd))
+      : projectEnd;
+    LS[id] = LF[id] - effectiveDur(node);
   }
 
   const slack = {};
@@ -65,16 +77,25 @@ export function computeCPM(nodes, edges, nearCriticalThreshold = 2) {
     slack[id] = (LS[id] ?? 0) - (ES[id] ?? 0);
   }
 
-  const enriched = nodes.map((n) => ({
-    ...n,
-    ES: ES[n.id] ?? 0,
-    EF: EF[n.id] ?? 0,
-    LS: LS[n.id] ?? 0,
-    LF: LF[n.id] ?? 0,
-    slack: slack[n.id] ?? 0,
-    isCritical: (slack[n.id] ?? 0) === 0,
-    isNearCritical: (slack[n.id] ?? 0) > 0 && (slack[n.id] ?? 0) <= nearCriticalThreshold,
-  }));
+  const enriched = nodes.map((n) => {
+    const nodeSlack = slack[n.id] ?? 0;
+    const readyDateOffset =
+      n.type === 'external' && n.readyDate && projectStartDate
+        ? businessDayOffset(projectStartDate, n.readyDate)
+        : null;
+    return {
+      ...n,
+      type: n.type ?? 'task',
+      ES: ES[n.id] ?? 0,
+      EF: EF[n.id] ?? 0,
+      LS: LS[n.id] ?? 0,
+      LF: LF[n.id] ?? 0,
+      slack: nodeSlack,
+      readyDateOffset,
+      isCritical: nodeSlack === 0,
+      isNearCritical: nodeSlack > 0 && nodeSlack <= nearCriticalThreshold,
+    };
+  });
 
   const criticalEdgeIds = new Set();
   const nearCriticalEdgeIds = new Set();

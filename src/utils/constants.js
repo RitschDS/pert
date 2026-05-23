@@ -8,3 +8,5 @@ export const MIN_NODE_W = 120;
 export const MIN_NODE_H = 70;
 export const DEFAULT_NODE_W = 200;
 export const DEFAULT_NODE_H = 120;
+export const DEFAULT_EXT_W = 120;
+export const DEFAULT_EXT_H = 80;

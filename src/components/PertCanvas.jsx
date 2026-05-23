@@ -1,4 +1,5 @@
 import NodeCard from './NodeCard';
+import ExternalDependencyCard from './ExternalDependencyCard';
 import EdgePath from './EdgePath';
 import { nodeOutputAnchor, nodeInputAnchor } from '../utils/layout';
 
@@ -17,6 +18,7 @@ export default function PertCanvas({
   selectedIds,     // Set<string>
   focusedNodeIds,  // Set<string> | null
   focusedEdgeIds,  // Set<string> | null
+  projectStartDate, // ISO string | null
   onCanvasMouseDown,
   onCanvasMouseMove,
   onCanvasMouseUp,
@@ -146,19 +148,36 @@ export default function PertCanvas({
         {/* Nodes */}
         {nodes.map((node) => {
           const nodeFocusOpacity = focusedNodeIds && !focusedNodeIds.has(node.id) ? 0.1 : 1;
+          const isExternal = (node.type ?? 'task') === 'external';
           return (
             <g key={node.id} opacity={nodeFocusOpacity}>
-              <NodeCard
-                node={node}
-                cpm={cpmMap.get(node.id) ?? null}
-                rubberBandActive={!!rubberBand}
-                isSelected={selectedIds.has(node.id)}
-                onMouseDown={onNodeMouseDown}
-                onDoubleClick={onNodeDoubleClick}
-                onResizeMouseDown={onResizeMouseDown}
-                onOutputAnchorMouseDown={onOutputAnchorMouseDown}
-                onInputAnchorMouseUp={onInputAnchorMouseUp}
-              />
+              {isExternal ? (
+                <ExternalDependencyCard
+                  node={node}
+                  cpm={cpmMap.get(node.id) ?? null}
+                  rubberBandActive={!!rubberBand}
+                  isSelected={selectedIds.has(node.id)}
+                  projectStartDate={projectStartDate}
+                  onMouseDown={onNodeMouseDown}
+                  onDoubleClick={onNodeDoubleClick}
+                  onResizeMouseDown={onResizeMouseDown}
+                  onOutputAnchorMouseDown={onOutputAnchorMouseDown}
+                  onInputAnchorMouseUp={onInputAnchorMouseUp}
+                />
+              ) : (
+                <NodeCard
+                  node={node}
+                  cpm={cpmMap.get(node.id) ?? null}
+                  rubberBandActive={!!rubberBand}
+                  isSelected={selectedIds.has(node.id)}
+                  projectStartDate={projectStartDate}
+                  onMouseDown={onNodeMouseDown}
+                  onDoubleClick={onNodeDoubleClick}
+                  onResizeMouseDown={onResizeMouseDown}
+                  onOutputAnchorMouseDown={onOutputAnchorMouseDown}
+                  onInputAnchorMouseUp={onInputAnchorMouseUp}
+                />
+              )}
             </g>
           );
         })}

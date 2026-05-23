@@ -1,8 +1,9 @@
 export default function Toolbar({
-  onAddNode, scale, onResetZoom,
+  onAddNode, onAddExternalNode, scale, onResetZoom,
   user, onSignOut,
   onBack, projectName, onProjectNameChange,
   saveStatus, savedAt, onSave,
+  projectStartDate, onProjectStartDateChange,
 }) {
   const pct = Math.round((scale ?? 1) * 100);
   const isDefaultZoom = pct === 100;
@@ -53,7 +54,7 @@ export default function Toolbar({
 
       <Divider />
 
-      <ToolBtn title="Add Node" onClick={onAddNode}>
+      <ToolBtn title="Add Task Node" onClick={onAddNode}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <rect x="1" y="1" width="14" height="14" rx="3"
             stroke="currentColor" strokeWidth="1.5" />
@@ -63,6 +64,37 @@ export default function Toolbar({
             stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       </ToolBtn>
+
+      <ToolBtn title="Add External Dependency" onClick={onAddExternalNode}>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <polygon points="7,1 13,7 7,13 1,7" stroke="#8b5cf6" strokeWidth="1.5" fill="none"/>
+          <line x1="7" y1="4" x2="7" y2="10" stroke="#8b5cf6" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="4" y1="7" x2="10" y2="7" stroke="#8b5cf6" strokeWidth="1.2" strokeLinecap="round"/>
+        </svg>
+      </ToolBtn>
+
+      <Divider />
+
+      {/* Project start date */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ fontSize: 9, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Start</span>
+        <input
+          type="date"
+          value={projectStartDate ?? ''}
+          onChange={e => onProjectStartDateChange(e.target.value)}
+          style={{
+            background: 'transparent',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 4,
+            color: '#94a3b8',
+            fontSize: 11,
+            padding: '2px 4px',
+            outline: 'none',
+            colorScheme: 'dark',
+            fontFamily: "'IBM Plex Sans', sans-serif",
+          }}
+        />
+      </div>
 
       <Divider />
 
