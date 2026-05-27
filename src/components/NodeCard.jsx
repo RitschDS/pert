@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { MIN_NODE_W, MIN_NODE_H } from '../utils/constants';
+import { offsetToDateStr } from '../utils/dateUtils';
 
 const STATUS_COLOR = {
   'Complete':    '#22c55e',
@@ -37,6 +38,7 @@ export default function NodeCard({
   cpm,               // { ES, EF, LS, LF, slack, isCritical, isNearCritical } | null
   rubberBandActive,  // bool — show input anchor hint
   isSelected,        // bool — render selection ring
+  projectStartDate,  // ISO string | null — for date display
   onMouseDown,       // (e, nodeId) => void  — node drag
   onDoubleClick,     // (nodeId) => void
   onResizeMouseDown, // (e, nodeId) => void
@@ -149,11 +151,15 @@ export default function NodeCard({
             <line x1={11} y1={63} x2={w - 11} y2={63} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
             <text x={11} y={73} fill="#475569" fontSize={9}
               fontFamily="'IBM Plex Sans', sans-serif">
-              {`ES:${cpm.ES}  EF:${cpm.EF}`}
+              {projectStartDate
+                ? `ES:${cpm.ES} ${offsetToDateStr(projectStartDate, cpm.ES)}  EF:${cpm.EF} ${offsetToDateStr(projectStartDate, cpm.EF)}`
+                : `ES:${cpm.ES}  EF:${cpm.EF}`}
             </text>
             <text x={11} y={83} fill="#475569" fontSize={9}
               fontFamily="'IBM Plex Sans', sans-serif">
-              {`LS:${cpm.LS}  LF:${cpm.LF}`}
+              {projectStartDate
+                ? `LS:${cpm.LS} ${offsetToDateStr(projectStartDate, cpm.LS)}  LF:${cpm.LF} ${offsetToDateStr(projectStartDate, cpm.LF)}`
+                : `LS:${cpm.LS}  LF:${cpm.LF}`}
             </text>
             {h >= 100 && (
               <text x={11} y={95} fill={slackColor} fontSize={9} fontWeight="500"
