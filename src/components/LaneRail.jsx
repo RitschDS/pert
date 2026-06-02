@@ -6,6 +6,7 @@ let laneCounter = 10;
 export default function LaneRail({
   lanes,           // [{ id, label, height, color, yOffset }]
   panY,
+  scale,
   onResizeLane,    // (id, newHeight) => void
   onRenameLane,    // (id, label) => void
   onDeleteLane,    // (id) => void
@@ -36,7 +37,7 @@ export default function LaneRail({
   function onResizeMove(e) {
     if (!resizeRef.current) return;
     const { laneId, startY, startHeight } = resizeRef.current;
-    const newH = Math.max(MIN_LANE_H, startHeight + (e.clientY - startY));
+    const newH = Math.max(MIN_LANE_H, startHeight + (e.clientY - startY) / scale);
     onResizeLane(laneId, newH);
   }
 
@@ -74,8 +75,8 @@ export default function LaneRail({
     // Compute where cursor is relative to lane midpoints
     let y = panY;
     const mids = localOrder.map((l) => {
-      const mid = y + l.height / 2;
-      y += l.height;
+      const mid = y + (l.height * scale) / 2;
+      y += l.height * scale;
       return mid;
     });
 
@@ -145,7 +146,6 @@ export default function LaneRail({
 
       {/* Lane rows */}
       {displayWithOffset.map((lane) => {
-        const top = lane.yOffset + panY - PHASE_RAIL_H;
         const isDragging = reorderDrag?.draggingId === lane.id;
         const isEditing = editingId === lane.id;
 
@@ -154,10 +154,10 @@ export default function LaneRail({
             key={lane.id}
             className="absolute"
             style={{
-              top: top + PHASE_RAIL_H,
+              top: lane.yOffset * scale + panY,
               left: 0,
               width: '100%',
-              height: lane.height,
+              height: lane.height * scale,
               opacity: isDragging ? 0.45 : 1,
               transition: reorderDrag ? 'top 0.1s' : 'none',
             }}
@@ -278,7 +278,7 @@ export default function LaneRail({
           position: 'absolute',
           left: 0,
           width: '100%',
-          top: totalH + panY,
+          top: totalH * scale + panY,
           display: 'flex',
           justifyContent: 'center',
           padding: '6px 0',
