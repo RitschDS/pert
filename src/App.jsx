@@ -669,6 +669,7 @@ function AppCanvas({ user, project, onBack }) {
       <PhaseRail
         phases={phasesWithOffset}
         panX={pan.x - LANE_RAIL_W}
+        scale={scale}
         onResizePhase={handleResizePhase}
         onRenamePhase={handleRenamePhase}
         onAddPhase={handleAddPhase}
@@ -677,6 +678,7 @@ function AppCanvas({ user, project, onBack }) {
       <LaneRail
         lanes={lanesWithOffset}
         panY={pan.y}
+        scale={scale}
         onResizeLane={handleResizeLane}
         onRenameLane={handleRenameLane}
         onDeleteLane={handleDeleteLane}

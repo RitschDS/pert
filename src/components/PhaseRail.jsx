@@ -4,6 +4,7 @@ import { MIN_PHASE_W, LANE_RAIL_W, PHASE_RAIL_H } from '../utils/constants';
 export default function PhaseRail({
   phases,          // [{ id, label, width, color, xOffset }]
   panX,
+  scale,
   onResizePhase,   // (id, newWidth) => void
   onRenamePhase,   // (id, label) => void
   onAddPhase,      // () => void
@@ -25,7 +26,7 @@ export default function PhaseRail({
   function onResizeMove(e) {
     if (!resizeRef.current) return;
     const { phaseId, startX, startWidth } = resizeRef.current;
-    const newW = Math.max(MIN_PHASE_W, startWidth + (e.clientX - startX));
+    const newW = Math.max(MIN_PHASE_W, startWidth + (e.clientX - startX) / scale);
     onResizePhase(phaseId, newW);
   }
 
@@ -67,7 +68,7 @@ export default function PhaseRail({
       />
 
       {phases.map((phase) => {
-        const left = phase.xOffset + panX + LANE_RAIL_W;
+        const left = phase.xOffset * scale + panX + LANE_RAIL_W;
         const isEditing = editingId === phase.id;
         const isHovered = hoveredId === phase.id;
 
@@ -78,7 +79,7 @@ export default function PhaseRail({
               position: 'absolute',
               left,
               top: 0,
-              width: phase.width,
+              width: phase.width * scale,
               height: '100%',
               display: 'flex',
               alignItems: 'center',
@@ -107,7 +108,7 @@ export default function PhaseRail({
                   color: '#e2e8f0',
                   fontSize: 10,
                   padding: '1px 6px',
-                  width: Math.min(phase.width - 24, 120),
+                  width: Math.min(phase.width * scale - 24, 120),
                   outline: 'none',
                   textAlign: 'center',
                 }}
@@ -124,7 +125,7 @@ export default function PhaseRail({
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
-                  maxWidth: phase.width - 24,
+                  maxWidth: phase.width * scale - 24,
                   transition: 'color 0.15s',
                 }}
               >
@@ -155,7 +156,7 @@ export default function PhaseRail({
       <div
         style={{
           position: 'absolute',
-          left: totalWidth + panX + LANE_RAIL_W + 8,
+          left: totalWidth * scale + panX + LANE_RAIL_W + 8,
           top: '50%',
           transform: 'translateY(-50%)',
         }}
