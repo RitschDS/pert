@@ -20,7 +20,6 @@ import ExternalDependencyEditPanel from './components/ExternalDependencyEditPane
 
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 3;
-const SCALE_STEP = 0.1;
 
 let _nodeId = 100;
 let _edgeId = 100;
@@ -201,8 +200,12 @@ function AppCanvas({ user, project, onBack }) {
       e.preventDefault();
 
       const oldScale = scaleRef.current;
-      const rawScale = oldScale + (e.deltaY < 0 ? SCALE_STEP : -SCALE_STEP);
-      const newScale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, +rawScale.toFixed(2)));
+
+      // Proportional zoom: scale change is relative to current scale,
+      // and proportional to scroll speed. Normalize line-mode deltas.
+      const dy = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
+      const factor = Math.exp(-dy * 0.002);
+      const newScale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, oldScale * factor));
       if (newScale === oldScale) return;
 
       // Mouse position relative to the canvas div
@@ -218,9 +221,14 @@ function AppCanvas({ user, project, onBack }) {
       const newCpx = mx - zf * (mx - cpx);
       const newCpy = my - zf * (my - cpy);
 
+      const newPan = { x: newCpx + LANE_RAIL_W, y: newCpy + PHASE_RAIL_H };
+
+      // Update refs synchronously so rapid wheel events read fresh values
       scaleRef.current = newScale;
+      panRef.current = newPan;
+
       setScale(newScale);
-      setPan({ x: newCpx + LANE_RAIL_W, y: newCpy + PHASE_RAIL_H });
+      setPan(newPan);
     }
 
     div.addEventListener('wheel', onWheel, { passive: false });
