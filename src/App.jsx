@@ -115,8 +115,8 @@ function AppCanvas({ user, project, onBack }) {
 
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
-  useEffect(() => { panRef.current = pan; }, [pan]);
-  useEffect(() => { scaleRef.current = scale; }, [scale]);
+  // panRef and scaleRef are kept authoritative at every mutation site;
+  // no useEffect sync so rapid wheel events can't see stale values.
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
 
   // Sync module-level ID counters so new IDs don't collide with loaded data
@@ -194,6 +194,7 @@ function AppCanvas({ user, project, onBack }) {
   useEffect(() => {
     const div = canvasDivRef.current;
     if (!div) return;
+    let zoomRAF = null;
 
     function onWheel(e) {
       if (!e.ctrlKey && !e.metaKey) return;
@@ -201,45 +202,53 @@ function AppCanvas({ user, project, onBack }) {
 
       const oldScale = scaleRef.current;
 
-      // Proportional zoom: scale change is relative to current scale,
-      // and proportional to scroll speed. Normalize line-mode deltas.
+      // Proportional zoom proportional to scroll speed; normalize line-mode.
       const dy = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
       const factor = Math.exp(-dy * 0.002);
       const newScale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, oldScale * factor));
       if (newScale === oldScale) return;
 
-      // Mouse position relative to the canvas div
       const rect = div.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
 
-      // Current canvasPan (relative to canvas div, not app pan)
       const cpx = panRef.current.x - LANE_RAIL_W;
       const cpy = panRef.current.y - PHASE_RAIL_H;
 
       const zf = newScale / oldScale;
-      const newCpx = mx - zf * (mx - cpx);
-      const newCpy = my - zf * (my - cpy);
+      const newPan = {
+        x: mx - zf * (mx - cpx) + LANE_RAIL_W,
+        y: my - zf * (my - cpy) + PHASE_RAIL_H,
+      };
 
-      const newPan = { x: newCpx + LANE_RAIL_W, y: newCpy + PHASE_RAIL_H };
-
-      // Update refs synchronously so rapid wheel events read fresh values
+      // Write refs immediately so the next wheel event reads correct values.
       scaleRef.current = newScale;
       panRef.current = newPan;
 
-      setScale(newScale);
-      setPan(newPan);
+      // Coalesce React state updates to one per animation frame — eliminates
+      // the per-event re-render churn that causes visible jolting.
+      if (zoomRAF) cancelAnimationFrame(zoomRAF);
+      zoomRAF = requestAnimationFrame(() => {
+        setScale(scaleRef.current);
+        setPan(panRef.current);
+        zoomRAF = null;
+      });
     }
 
     div.addEventListener('wheel', onWheel, { passive: false });
-    return () => div.removeEventListener('wheel', onWheel);
+    return () => {
+      div.removeEventListener('wheel', onWheel);
+      if (zoomRAF) cancelAnimationFrame(zoomRAF);
+    };
   }, []);
 
   // ── Reset zoom ──────────────────────────────────────────────────────────
   const handleResetZoom = useCallback(() => {
-    setScale(1);
+    const newPan = { x: LANE_RAIL_W + 20, y: PHASE_RAIL_H + 20 };
     scaleRef.current = 1;
-    setPan({ x: LANE_RAIL_W + 20, y: PHASE_RAIL_H + 20 });
+    panRef.current = newPan;
+    setScale(1);
+    setPan(newPan);
   }, []);
 
   // ── Sign out ─────────────────────────────────────────────────────────────
@@ -366,10 +375,12 @@ function AppCanvas({ user, project, onBack }) {
     const s = scaleRef.current;
 
     if (ix?.type === 'pan') {
-      setPan({
+      const newPan = {
         x: ix.originPan.x + (e.clientX - ix.startX),
         y: ix.originPan.y + (e.clientY - ix.startY),
-      });
+      };
+      panRef.current = newPan;
+      setPan(newPan);
     }
 
     if (ix?.type === 'nodeDrag') {
