@@ -17,6 +17,7 @@ import SummaryBar from './components/SummaryBar';
 import LoginScreen from './components/LoginScreen';
 import ProjectLibrary from './components/ProjectLibrary';
 import ExternalDependencyEditPanel from './components/ExternalDependencyEditPanel';
+import ResetPasswordScreen from './components/ResetPasswordScreen';
 
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 3;
@@ -30,18 +31,27 @@ export default function App() {
   const [session, setSession] = useState(undefined); // undefined = loading, null = no session
   const [view, setView] = useState('library');        // 'library' | 'canvas'
   const [currentProject, setCurrentProject] = useState(null);
+  const [isRecovery, setIsRecovery] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (!session) { setView('library'); setCurrentProject(null); }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        // User clicked a password-reset link — show the set-new-password screen.
+        setSession(session);
+        setIsRecovery(true);
+      } else {
+        setSession(session);
+        setIsRecovery(false);
+        if (!session) { setView('library'); setCurrentProject(null); }
+      }
     });
     return () => subscription.unsubscribe();
   }, []);
 
   if (session === undefined) return null;
   if (!session) return <LoginScreen />;
+  if (isRecovery) return <ResetPasswordScreen onDone={() => setIsRecovery(false)} />;
 
   if (view === 'canvas' && currentProject) {
     return (
