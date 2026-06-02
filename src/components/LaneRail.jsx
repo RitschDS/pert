@@ -7,6 +7,7 @@ export default function LaneRail({
   lanes,           // [{ id, label, height, color, yOffset }]
   panY,
   scale,
+  canEdit,
   onResizeLane,    // (id, newHeight) => void
   onRenameLane,    // (id, label) => void
   onDeleteLane,    // (id) => void
@@ -173,14 +174,14 @@ export default function LaneRail({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                cursor: 'grab',
+                cursor: canEdit ? 'grab' : 'default',
                 paddingInline: 10,
               }}
-              onMouseDown={(e) => startReorder(e, lane)}
-              onDoubleClick={() => {
+              onMouseDown={canEdit ? (e) => startReorder(e, lane) : undefined}
+              onDoubleClick={canEdit ? () => {
                 setEditingId(lane.id);
                 setEditLabel(lane.label);
-              }}
+              } : undefined}
             >
               {isEditing ? (
                 <input
@@ -225,8 +226,8 @@ export default function LaneRail({
               )}
             </div>
 
-            {/* Delete button (hover only) */}
-            {hoveredId === lane.id && !isEditing && (
+            {/* Delete button (hover only, owner/edit mode) */}
+            {canEdit && hoveredId === lane.id && !isEditing && (
               <button
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.stopPropagation(); onDeleteLane(lane.id); }}
@@ -261,19 +262,19 @@ export default function LaneRail({
                 left: 0,
                 right: 0,
                 height: 6,
-                cursor: 'row-resize',
+                cursor: canEdit ? 'row-resize' : 'default',
                 borderBottom: hoveredId === lane.id
                   ? '2px solid rgba(99,102,241,0.5)'
                   : '1px solid rgba(255,255,255,0.07)',
               }}
-              onMouseDown={(e) => startResize(e, lane)}
+              onMouseDown={canEdit ? (e) => startResize(e, lane) : undefined}
             />
           </div>
         );
       })}
 
-      {/* Add Lane button */}
-      <div
+      {/* Add Lane button — hidden in view-only mode */}
+      {canEdit && <div
         style={{
           position: 'absolute',
           left: 0,
@@ -304,7 +305,7 @@ export default function LaneRail({
         >
           +
         </button>
-      </div>
+      </div>}
     </div>
   );
 }

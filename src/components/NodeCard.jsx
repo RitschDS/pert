@@ -39,6 +39,7 @@ export default function NodeCard({
   rubberBandActive,  // bool — show input anchor hint
   isSelected,        // bool — render selection ring
   projectStartDate,  // ISO string | null — for date display
+  canEdit,           // bool — false in view-only shared mode
   onMouseDown,       // (e, nodeId) => void  — node drag
   onDoubleClick,     // (nodeId) => void
   onResizeMouseDown, // (e, nodeId) => void
@@ -69,7 +70,7 @@ export default function NodeCard({
     stroke = 'rgba(34,197,94,0.2)'; strokeW = 1; bodyFill = 'rgba(15,23,30,0.7)';
   }
 
-  const showAnchors = hovered || rubberBandActive;
+  const showAnchors = canEdit && (hovered || rubberBandActive);
   const anchorColor = '#6366f1';
 
   const slackColor = !cpm ? '#64748b'
@@ -82,7 +83,7 @@ export default function NodeCard({
   return (
     <g
       transform={`translate(${node.x}, ${node.y})`}
-      style={{ cursor: 'grab' }}
+      style={{ cursor: canEdit ? 'grab' : 'default' }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, node.id); }}
@@ -182,15 +183,17 @@ export default function NodeCard({
         />
       )}
 
-      {/* Resize handle (bottom-right, not clipped) */}
-      <rect
-        x={w - 11} y={h - 11} width={9} height={9} rx={2}
-        fill="rgba(255,255,255,0.12)"
-        stroke="rgba(255,255,255,0.2)"
-        strokeWidth={0.5}
-        style={{ cursor: 'se-resize' }}
-        onMouseDown={(e) => { e.stopPropagation(); onResizeMouseDown(e, node.id); }}
-      />
+      {/* Resize handle (bottom-right, not clipped) — hidden in view-only mode */}
+      {canEdit && (
+        <rect
+          x={w - 11} y={h - 11} width={9} height={9} rx={2}
+          fill="rgba(255,255,255,0.12)"
+          stroke="rgba(255,255,255,0.2)"
+          strokeWidth={0.5}
+          style={{ cursor: 'se-resize' }}
+          onMouseDown={(e) => { e.stopPropagation(); onResizeMouseDown(e, node.id); }}
+        />
+      )}
 
       {/* Input anchor (left center) */}
       {showAnchors && (
@@ -202,13 +205,15 @@ export default function NodeCard({
           style={{ pointerEvents: 'none' }}
         />
       )}
-      {/* Input anchor hit area */}
-      <circle
-        cx={0} cy={h / 2} r={9}
-        fill="transparent"
-        style={{ cursor: 'crosshair' }}
-        onMouseUp={(e) => { e.stopPropagation(); onInputAnchorMouseUp(e, node.id); }}
-      />
+      {/* Input anchor hit area — hidden in view-only mode */}
+      {canEdit && (
+        <circle
+          cx={0} cy={h / 2} r={9}
+          fill="transparent"
+          style={{ cursor: 'crosshair' }}
+          onMouseUp={(e) => { e.stopPropagation(); onInputAnchorMouseUp(e, node.id); }}
+        />
+      )}
 
       {/* Output anchor (right center) */}
       {showAnchors && (
@@ -219,13 +224,15 @@ export default function NodeCard({
           style={{ pointerEvents: 'none' }}
         />
       )}
-      {/* Output anchor hit area */}
-      <circle
-        cx={w} cy={h / 2} r={9}
-        fill="transparent"
-        style={{ cursor: 'crosshair' }}
-        onMouseDown={(e) => { e.stopPropagation(); onOutputAnchorMouseDown(e, node.id); }}
-      />
+      {/* Output anchor hit area — hidden in view-only mode */}
+      {canEdit && (
+        <circle
+          cx={w} cy={h / 2} r={9}
+          fill="transparent"
+          style={{ cursor: 'crosshair' }}
+          onMouseDown={(e) => { e.stopPropagation(); onOutputAnchorMouseDown(e, node.id); }}
+        />
+      )}
     </g>
   );
 }

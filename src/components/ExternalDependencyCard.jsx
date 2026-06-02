@@ -11,6 +11,7 @@ export default function ExternalDependencyCard({
   rubberBandActive,
   isSelected,
   projectStartDate,
+  canEdit,
   onMouseDown,
   onDoubleClick,
   onResizeMouseDown,
@@ -42,7 +43,7 @@ export default function ExternalDependencyCard({
   else if (cpm?.isNearCritical) { stroke = '#fb923c'; strokeW = 1.5; }
   if (isComplete) { stroke = 'rgba(34,197,94,0.25)'; strokeW = 1; bodyFill = 'rgba(15,23,30,0.7)'; }
 
-  const showAnchors = hovered || rubberBandActive;
+  const showAnchors = canEdit && (hovered || rubberBandActive);
   const anchorColor = '#6366f1';
 
   const readyLabel = node.readyDate ? `Ready: ${formatDate(node.readyDate)}` : 'No date';
@@ -54,7 +55,7 @@ export default function ExternalDependencyCard({
   return (
     <g
       transform={`translate(${node.x}, ${node.y})`}
-      style={{ cursor: 'grab' }}
+      style={{ cursor: canEdit ? 'grab' : 'default' }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, node.id); }}
@@ -117,15 +118,17 @@ export default function ExternalDependencyCard({
         />
       )}
 
-      {/* Resize handle (bottom-right quadrant) */}
-      <rect
-        x={w - 11} y={cy + 6} width={8} height={8} rx={2}
-        fill="rgba(255,255,255,0.12)"
-        stroke="rgba(255,255,255,0.2)"
-        strokeWidth={0.5}
-        style={{ cursor: 'se-resize' }}
-        onMouseDown={(e) => { e.stopPropagation(); onResizeMouseDown(e, node.id); }}
-      />
+      {/* Resize handle — hidden in view-only mode */}
+      {canEdit && (
+        <rect
+          x={w - 11} y={cy + 6} width={8} height={8} rx={2}
+          fill="rgba(255,255,255,0.12)"
+          stroke="rgba(255,255,255,0.2)"
+          strokeWidth={0.5}
+          style={{ cursor: 'se-resize' }}
+          onMouseDown={(e) => { e.stopPropagation(); onResizeMouseDown(e, node.id); }}
+        />
+      )}
 
       {/* Input anchor (left tip) */}
       {showAnchors && (
@@ -135,10 +138,12 @@ export default function ExternalDependencyCard({
           style={{ pointerEvents: 'none' }}
         />
       )}
-      <circle cx={0} cy={cy} r={9} fill="transparent"
-        style={{ cursor: 'crosshair' }}
-        onMouseUp={(e) => { e.stopPropagation(); onInputAnchorMouseUp(e, node.id); }}
-      />
+      {canEdit && (
+        <circle cx={0} cy={cy} r={9} fill="transparent"
+          style={{ cursor: 'crosshair' }}
+          onMouseUp={(e) => { e.stopPropagation(); onInputAnchorMouseUp(e, node.id); }}
+        />
+      )}
 
       {/* Output anchor (right tip) */}
       {showAnchors && (
@@ -147,10 +152,12 @@ export default function ExternalDependencyCard({
           style={{ pointerEvents: 'none' }}
         />
       )}
-      <circle cx={w} cy={cy} r={9} fill="transparent"
-        style={{ cursor: 'crosshair' }}
-        onMouseDown={(e) => { e.stopPropagation(); onOutputAnchorMouseDown(e, node.id); }}
-      />
+      {canEdit && (
+        <circle cx={w} cy={cy} r={9} fill="transparent"
+          style={{ cursor: 'crosshair' }}
+          onMouseDown={(e) => { e.stopPropagation(); onOutputAnchorMouseDown(e, node.id); }}
+        />
+      )}
     </g>
   );
 }
