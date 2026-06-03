@@ -39,17 +39,17 @@ export default function App() {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
-        // User clicked a password-reset link — show the set-new-password screen.
         setSession(session);
         setIsRecovery(true);
-      } else if (event === 'SIGNED_IN') {
-        // PASSWORD_RECOVERY fires first, then SIGNED_IN immediately after.
-        // Don't touch isRecovery here — it's only cleared by onDone() or sign-out.
-        setSession(session);
-      } else {
-        setSession(session);
+      } else if (event === 'SIGNED_OUT') {
+        setSession(null);
         setIsRecovery(false);
-        if (!session) { setView('library'); setCurrentProject(null); }
+        setView('library');
+        setCurrentProject(null);
+      } else {
+        // SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED, INITIAL_SESSION, etc.
+        // Never clear isRecovery here — it's only cleared by onDone() or SIGNED_OUT.
+        setSession(session);
       }
     });
     return () => subscription.unsubscribe();
