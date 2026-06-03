@@ -46,9 +46,10 @@ export default function ShareModal({ projectId, userId, onClose }) {
     setInviteLoading(true);
     setInviteError(null);
 
-    // Check if the email belongs to an existing user
+    // Check if the email belongs to an existing user (scoped to this project for authorization)
     const { data: resolvedUserId } = await supabase.rpc('get_user_id_by_email', {
       email_address: email,
+      p_project_id: projectId,
     });
 
     const { data: newShare, error } = await supabase
