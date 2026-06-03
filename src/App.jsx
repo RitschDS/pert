@@ -42,6 +42,10 @@ export default function App() {
         // User clicked a password-reset link — show the set-new-password screen.
         setSession(session);
         setIsRecovery(true);
+      } else if (event === 'SIGNED_IN') {
+        // PASSWORD_RECOVERY fires first, then SIGNED_IN immediately after.
+        // Don't touch isRecovery here — it's only cleared by onDone() or sign-out.
+        setSession(session);
       } else {
         setSession(session);
         setIsRecovery(false);
