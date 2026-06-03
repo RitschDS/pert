@@ -4,6 +4,7 @@ export default function Toolbar({
   onBack, projectName, onProjectNameChange,
   saveStatus, savedAt, onSave,
   projectStartDate, onProjectStartDateChange,
+  isOwner, canEdit, onShare,
 }) {
   const pct = Math.round((scale ?? 1) * 100);
   const isDefaultZoom = pct === 100;
@@ -54,49 +55,51 @@ export default function Toolbar({
 
       <Divider />
 
-      <ToolBtn title="Add Task Node" onClick={onAddNode}>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <rect x="1" y="1" width="14" height="14" rx="3"
-            stroke="currentColor" strokeWidth="1.5" />
-          <line x1="8" y1="4.5" x2="8" y2="11.5"
-            stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          <line x1="4.5" y1="8" x2="11.5" y2="8"
-            stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </ToolBtn>
+      {canEdit && <>
+        <ToolBtn title="Add Task Node" onClick={onAddNode}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="1" y="1" width="14" height="14" rx="3"
+              stroke="currentColor" strokeWidth="1.5" />
+            <line x1="8" y1="4.5" x2="8" y2="11.5"
+              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <line x1="4.5" y1="8" x2="11.5" y2="8"
+              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </ToolBtn>
 
-      <ToolBtn title="Add External Dependency" onClick={onAddExternalNode}>
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <polygon points="7,1 13,7 7,13 1,7" stroke="#8b5cf6" strokeWidth="1.5" fill="none"/>
-          <line x1="7" y1="4" x2="7" y2="10" stroke="#8b5cf6" strokeWidth="1.2" strokeLinecap="round"/>
-          <line x1="4" y1="7" x2="10" y2="7" stroke="#8b5cf6" strokeWidth="1.2" strokeLinecap="round"/>
-        </svg>
-      </ToolBtn>
+        <ToolBtn title="Add External Dependency" onClick={onAddExternalNode}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <polygon points="7,1 13,7 7,13 1,7" stroke="#8b5cf6" strokeWidth="1.5" fill="none"/>
+            <line x1="7" y1="4" x2="7" y2="10" stroke="#8b5cf6" strokeWidth="1.2" strokeLinecap="round"/>
+            <line x1="4" y1="7" x2="10" y2="7" stroke="#8b5cf6" strokeWidth="1.2" strokeLinecap="round"/>
+          </svg>
+        </ToolBtn>
 
-      <Divider />
+        <Divider />
 
-      {/* Project start date */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-        <span style={{ fontSize: 9, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Start</span>
-        <input
-          type="date"
-          value={projectStartDate ?? ''}
-          onChange={e => onProjectStartDateChange(e.target.value)}
-          style={{
-            background: 'transparent',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 4,
-            color: '#94a3b8',
-            fontSize: 11,
-            padding: '2px 4px',
-            outline: 'none',
-            colorScheme: 'dark',
-            fontFamily: "'IBM Plex Sans', sans-serif",
-          }}
-        />
-      </div>
+        {/* Project start date */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ fontSize: 9, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Start</span>
+          <input
+            type="date"
+            value={projectStartDate ?? ''}
+            onChange={e => onProjectStartDateChange(e.target.value)}
+            style={{
+              background: 'transparent',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 4,
+              color: '#94a3b8',
+              fontSize: 11,
+              padding: '2px 4px',
+              outline: 'none',
+              colorScheme: 'dark',
+              fontFamily: "'IBM Plex Sans', sans-serif",
+            }}
+          />
+        </div>
 
-      <Divider />
+        <Divider />
+      </>}
 
       {/* Zoom display + reset */}
       <button
@@ -128,18 +131,33 @@ export default function Toolbar({
 
       <Divider />
 
-      {/* Save status */}
-      <SaveStatus status={saveStatus} savedAt={savedAt} />
+      {canEdit && <>
+        {/* Save status */}
+        <SaveStatus status={saveStatus} savedAt={savedAt} />
 
-      <ToolBtn title="Save" onClick={onSave}>
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M2 2h8l2 2v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2z" stroke="currentColor" strokeWidth="1.3"/>
-          <rect x="4" y="2" width="5" height="3.5" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
-          <rect x="3.5" y="8" width="7" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
-        </svg>
-      </ToolBtn>
+        <ToolBtn title="Save" onClick={onSave}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 2h8l2 2v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2z" stroke="currentColor" strokeWidth="1.3"/>
+            <rect x="4" y="2" width="5" height="3.5" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
+            <rect x="3.5" y="8" width="7" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
+          </svg>
+        </ToolBtn>
 
-      <Divider />
+        <Divider />
+      </>}
+
+      {/* Share button — owner only */}
+      {isOwner && <>
+        <ToolBtn title="Share project" onClick={onShare}>
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <circle cx="12" cy="3" r="2" stroke="currentColor" strokeWidth="1.4"/>
+            <circle cx="12" cy="12" r="2" stroke="currentColor" strokeWidth="1.4"/>
+            <circle cx="3" cy="7.5" r="2" stroke="currentColor" strokeWidth="1.4"/>
+            <path d="M5 7.5h4M10.3 4.5 5.7 6.8M10.3 10.5 5.7 8.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+          </svg>
+        </ToolBtn>
+        <Divider />
+      </>}
 
       {/* User info + sign out */}
       <span style={{ fontSize: 11, color: '#475569', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

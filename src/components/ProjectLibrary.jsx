@@ -26,6 +26,7 @@ const DEFAULT_PROJECT_DATA = {
 
 export default function ProjectLibrary({ user, onOpenProject, onSignOut }) {
   const [projects, setProjects] = useState([]);
+  const [sharedProjects, setSharedProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -37,12 +38,13 @@ export default function ProjectLibrary({ user, onOpenProject, onSignOut }) {
   async function load() {
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase
-      .from('projects')
-      .select('id, name, updated_at')
-      .order('updated_at', { ascending: false });
-    if (error) setError(`Unable to connect: ${error.message} (code: ${error.code})`);
-    else setProjects(data ?? []);
+    const [ownResult, sharedResult] = await Promise.all([
+      supabase.from('projects').select('id, name, updated_at').order('updated_at', { ascending: false }),
+      supabase.rpc('get_shared_projects'),
+    ]);
+    if (ownResult.error) setError(`Unable to connect: ${ownResult.error.message} (code: ${ownResult.error.code})`);
+    else setProjects(ownResult.data ?? []);
+    setSharedProjects(sharedResult.data ?? []);
     setLoading(false);
   }
 
@@ -63,7 +65,21 @@ export default function ProjectLibrary({ user, onOpenProject, onSignOut }) {
       .eq('id', project.id)
       .single();
     if (error) { setError('Could not open project.'); return; }
-    onOpenProject(data);
+    onOpenProject(data, { isOwner: true, canEdit: true, sharedBy: null });
+  }
+
+  async function handleOpenShared(sharedProject) {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('id', sharedProject.id)
+      .single();
+    if (error) { setError('Could not open project.'); return; }
+    onOpenProject(data, {
+      isOwner: false,
+      canEdit: sharedProject.permission === 'edit',
+      sharedBy: sharedProject.owner_email,
+    });
   }
 
   async function handleDelete(project) {
@@ -135,6 +151,24 @@ export default function ProjectLibrary({ user, onOpenProject, onSignOut }) {
             ))}
           </div>
         )}
+
+        {/* Shared with me */}
+        {!loading && sharedProjects.length > 0 && (
+          <div style={{ marginTop: 48 }}>
+            <h2 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 600, color: '#94a3b8' }}>
+              Shared with me
+            </h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
+              {sharedProjects.map(sp => (
+                <SharedProjectCard
+                  key={sp.id}
+                  project={sp}
+                  onOpen={() => handleOpenShared(sp)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -179,6 +213,32 @@ const BTN_VARIANTS = {
   danger:  { background: 'rgba(239,68,68,0.12)',   border: '1px solid rgba(239,68,68,0.3)',   color: '#fca5a5' },
   muted:   { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8' },
 };
+
+function SharedProjectCard({ project, onOpen }) {
+  const permColor = project.permission === 'edit' ? '#22c55e' : '#818cf8';
+  const permBg = project.permission === 'edit' ? 'rgba(34,197,94,0.1)' : 'rgba(99,102,241,0.1)';
+  const permBorder = project.permission === 'edit' ? 'rgba(34,197,94,0.25)' : 'rgba(99,102,241,0.25)';
+  return (
+    <div style={{ background: '#1e2130', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <span style={{ fontSize: 15, fontWeight: 600, color: '#f1f5f9' }}>{project.name}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 11, color: '#475569' }}>
+          By {project.owner_email}
+        </span>
+        <span style={{
+          fontSize: 10, fontWeight: 600, padding: '2px 7px',
+          background: permBg, border: `1px solid ${permBorder}`,
+          borderRadius: 10, color: permColor,
+          textTransform: 'uppercase', letterSpacing: '0.06em',
+        }}>
+          {project.permission}
+        </span>
+      </div>
+      <span style={{ fontSize: 11, color: '#475569' }}>Edited {timeAgo(project.updated_at)}</span>
+      <Btn onClick={onOpen} variant="primary">Open</Btn>
+    </div>
+  );
+}
 
 function Btn({ onClick, variant = 'muted', children, style: extra }) {
   const v = BTN_VARIANTS[variant];

@@ -5,6 +5,7 @@ export default function PhaseRail({
   phases,          // [{ id, label, width, color, xOffset }]
   panX,
   scale,
+  canEdit,
   onResizePhase,   // (id, newWidth) => void
   onRenamePhase,   // (id, label) => void
   onAddPhase,      // () => void
@@ -88,7 +89,7 @@ export default function PhaseRail({
             }}
             onMouseEnter={() => setHoveredId(phase.id)}
             onMouseLeave={() => setHoveredId(null)}
-            onDoubleClick={() => { setEditingId(phase.id); setEditLabel(phase.label); }}
+            onDoubleClick={canEdit ? () => { setEditingId(phase.id); setEditLabel(phase.label); } : undefined}
           >
             {isEditing ? (
               <input
@@ -141,19 +142,19 @@ export default function PhaseRail({
                 top: 0,
                 width: 6,
                 height: '100%',
-                cursor: 'col-resize',
+                cursor: canEdit ? 'col-resize' : 'default',
                 borderRight: isHovered
                   ? '2px solid rgba(99,102,241,0.5)'
                   : '1px solid rgba(255,255,255,0.04)',
               }}
-              onMouseDown={(e) => startResize(e, phase)}
+              onMouseDown={canEdit ? (e) => startResize(e, phase) : undefined}
             />
           </div>
         );
       })}
 
-      {/* Add Phase button */}
-      <div
+      {/* Add Phase button — hidden in view-only mode */}
+      {canEdit && <div
         style={{
           position: 'absolute',
           left: totalWidth * scale + panX + LANE_RAIL_W + 8,
@@ -181,7 +182,7 @@ export default function PhaseRail({
         >
           +
         </button>
-      </div>
+      </div>}
     </div>
   );
 }

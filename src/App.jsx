@@ -18,6 +18,7 @@ import LoginScreen from './components/LoginScreen';
 import ProjectLibrary from './components/ProjectLibrary';
 import ExternalDependencyEditPanel from './components/ExternalDependencyEditPanel';
 import ResetPasswordScreen from './components/ResetPasswordScreen';
+import ShareModal from './components/ShareModal';
 
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 3;
@@ -31,19 +32,24 @@ export default function App() {
   const [session, setSession] = useState(undefined); // undefined = loading, null = no session
   const [view, setView] = useState('library');        // 'library' | 'canvas'
   const [currentProject, setCurrentProject] = useState(null);
+  const [projectMeta, setProjectMeta] = useState({ isOwner: true, canEdit: true, sharedBy: null });
   const [isRecovery, setIsRecovery] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
-        // User clicked a password-reset link — show the set-new-password screen.
         setSession(session);
         setIsRecovery(true);
-      } else {
-        setSession(session);
+      } else if (event === 'SIGNED_OUT') {
+        setSession(null);
         setIsRecovery(false);
-        if (!session) { setView('library'); setCurrentProject(null); }
+        setView('library');
+        setCurrentProject(null);
+      } else {
+        // SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED, INITIAL_SESSION, etc.
+        // Never clear isRecovery here — it's only cleared by onDone() or SIGNED_OUT.
+        setSession(session);
       }
     });
     return () => subscription.unsubscribe();
@@ -58,6 +64,9 @@ export default function App() {
       <AppCanvas
         user={session.user}
         project={currentProject}
+        isOwner={projectMeta.isOwner}
+        canEdit={projectMeta.canEdit}
+        sharedBy={projectMeta.sharedBy}
         onBack={() => { setView('library'); setCurrentProject(null); }}
       />
     );
@@ -66,13 +75,17 @@ export default function App() {
   return (
     <ProjectLibrary
       user={session.user}
-      onOpenProject={(project) => { setCurrentProject(project); setView('canvas'); }}
+      onOpenProject={(project, meta = { isOwner: true, canEdit: true, sharedBy: null }) => {
+        setCurrentProject(project);
+        setProjectMeta(meta);
+        setView('canvas');
+      }}
       onSignOut={() => supabase.auth.signOut()}
     />
   );
 }
 
-function AppCanvas({ user, project, onBack }) {
+function AppCanvas({ user, project, onBack, isOwner, canEdit, sharedBy }) {
   const projectData = project?.data ?? {};
 
   const [nodes, setNodes] = useState(projectData.nodes ?? INITIAL_NODES);
@@ -96,6 +109,8 @@ function AppCanvas({ user, project, onBack }) {
   const [nearCriticalThreshold, setNearCriticalThreshold] = useState(2);
   const [deleteMessage, setDeleteMessage] = useState(null);
   const [focusedNodeId, setFocusedNodeId] = useState(null);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [accessRevoked, setAccessRevoked] = useState(false);
 
   // Stable refs so event handlers don't go stale
   const nodesRef = useRef(nodes);
@@ -114,6 +129,12 @@ function AppCanvas({ user, project, onBack }) {
   //   { type:'bulkDrag', nodeIds, startMouseX, startMouseY, startPositions:{id:{x,y}} }
 
   const canvasDivRef = useRef(null);
+
+  // canEdit/isOwner refs — updated synchronously each render so callbacks never see stale values
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
+  const isOwnerRef = useRef(isOwner);
+  isOwnerRef.current = isOwner;
 
   // ── Save state ──────────────────────────────────────────────────────────
   const [saveStatus, setSaveStatus] = useState('idle'); // 'idle'|'unsaved'|'saving'|'saved'|'error'
@@ -269,15 +290,21 @@ function AppCanvas({ user, project, onBack }) {
   // ── Save ─────────────────────────────────────────────────────────────────
   const performSave = useCallback(async () => {
     if (!latestSaveDataRef.current) return;
+    if (!canEditRef.current) return;
     setSaveStatus('saving');
     const { name, data } = latestSaveDataRef.current;
-    const { error } = await supabase
-      .from('projects')
-      .upsert({ id: project.id, user_id: user.id, name, data });
+    const query = isOwnerRef.current
+      ? supabase.from('projects').upsert({ id: project.id, user_id: user.id, name, data })
+      : supabase.from('projects').update({ name, data }).eq('id', project.id);
+    const { error } = await query;
     if (error) {
-      setSaveStatus('error');
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = setTimeout(performSave, 5000);
+      if (error.code === '42501') {
+        setAccessRevoked(true);
+      } else {
+        setSaveStatus('error');
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = setTimeout(performSave, 5000);
+      }
     } else {
       setSaveStatus('saved');
       setSavedAt(new Date());
@@ -302,6 +329,7 @@ function AppCanvas({ user, project, onBack }) {
   // Auto-save: debounce all canvas state changes by 2 seconds
   useEffect(() => {
     if (isFirstRenderRef.current) { isFirstRenderRef.current = false; return; }
+    if (!canEdit) return;
     latestSaveDataRef.current = {
       name: projectName,
       data: {
@@ -337,6 +365,7 @@ function AppCanvas({ user, project, onBack }) {
       }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (!canEditRef.current) return;
         setSelectedIds((prev) => {
           if (prev.size === 0) return prev;
           const count = prev.size;
@@ -359,7 +388,7 @@ function AppCanvas({ user, project, onBack }) {
     if (tag !== 'svg' && tag !== 'rect' && tag !== 'line' && tag !== 'g') return;
     if (rubberBandRef.current) return;
 
-    if (e.shiftKey) {
+    if (e.shiftKey && canEditRef.current) {
       // Start bulk-select rubber band — clears focus mode (mutually exclusive)
       setFocusedNodeId(null);
       const pos = toCanvas(e.clientX, e.clientY);
@@ -397,12 +426,12 @@ function AppCanvas({ user, project, onBack }) {
       const dx = (e.clientX - ix.startMouseX) / s;
       const dy = (e.clientY - ix.startMouseY) / s;
       if (!ix.moved && (Math.abs(dx) > 4 / s || Math.abs(dy) > 4 / s)) ix.moved = true;
-      setNodes((prev) => prev.map((n) =>
+      if (canEditRef.current) setNodes((prev) => prev.map((n) =>
         n.id === ix.nodeId ? { ...n, x: ix.startNodeX + dx, y: ix.startNodeY + dy } : n
       ));
     }
 
-    if (ix?.type === 'nodeResize') {
+    if (ix?.type === 'nodeResize' && canEditRef.current) {
       const dx = (e.clientX - ix.startMouseX) / s;
       const dy = (e.clientY - ix.startMouseY) / s;
       setNodes((prev) => prev.map((n) =>
@@ -416,14 +445,14 @@ function AppCanvas({ user, project, onBack }) {
       const dx = (e.clientX - ix.startMouseX) / s;
       const dy = (e.clientY - ix.startMouseY) / s;
       if (!ix.moved && (Math.abs(dx) > 4 / s || Math.abs(dy) > 4 / s)) ix.moved = true;
-      setNodes((prev) => prev.map((n) => {
+      if (canEditRef.current) setNodes((prev) => prev.map((n) => {
         const start = ix.startPositions[n.id];
         if (!start) return n;
         return { ...n, x: start.x + dx, y: start.y + dy };
       }));
     }
 
-    if (ix?.type === 'selectRect' && selectRectRef.current) {
+    if (ix?.type === 'selectRect' && selectRectRef.current && canEditRef.current) {
       const pos = toCanvas(e.clientX, e.clientY);
       selectRectRef.current = { ...selectRectRef.current, x2: pos.x, y2: pos.y };
       setSelectRect({ ...selectRectRef.current });
@@ -579,6 +608,7 @@ function AppCanvas({ user, project, onBack }) {
 
   // ── Node edit ───────────────────────────────────────────────────────────
   const handleNodeDoubleClick = useCallback((nodeId) => {
+    if (!canEditRef.current) return;
     setEditingNodeId(nodeId);
   }, []);
 
@@ -699,6 +729,7 @@ function AppCanvas({ user, project, onBack }) {
         phases={phasesWithOffset}
         panX={pan.x - LANE_RAIL_W}
         scale={scale}
+        canEdit={canEdit}
         onResizePhase={handleResizePhase}
         onRenamePhase={handleRenamePhase}
         onAddPhase={handleAddPhase}
@@ -708,6 +739,7 @@ function AppCanvas({ user, project, onBack }) {
         lanes={lanesWithOffset}
         panY={pan.y}
         scale={scale}
+        canEdit={canEdit}
         onResizeLane={handleResizeLane}
         onRenameLane={handleRenameLane}
         onDeleteLane={handleDeleteLane}
@@ -751,6 +783,7 @@ function AppCanvas({ user, project, onBack }) {
           onOutputAnchorMouseDown={handleOutputAnchorMouseDown}
           onInputAnchorMouseUp={handleInputAnchorMouseUp}
           onEdgeClick={handleEdgeClick}
+          canEdit={canEdit}
         />
 
         {/* Simulation banner */}
@@ -762,6 +795,42 @@ function AppCanvas({ user, project, onBack }) {
             zIndex: 45, whiteSpace: 'nowrap', pointerEvents: 'none',
           }}>
             Simulation mode — not saved
+          </div>
+        )}
+
+        {/* Access revoked banner */}
+        {accessRevoked && (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0,
+            background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
+            padding: '8px 16px', color: '#fca5a5', fontSize: 12, fontWeight: 600,
+            zIndex: 50, textAlign: 'center',
+          }}>
+            Access removed — this project is no longer shared with you
+          </div>
+        )}
+
+        {/* View-only banner */}
+        {!canEdit && !accessRevoked && sharedBy && (
+          <div style={{
+            position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)',
+            borderRadius: 8, padding: '5px 14px', color: '#818cf8', fontSize: 11, fontWeight: 600,
+            zIndex: 45, whiteSpace: 'nowrap', pointerEvents: 'none',
+          }}>
+            View only — shared by {sharedBy}
+          </div>
+        )}
+
+        {/* Shared-edit banner */}
+        {canEdit && !isOwner && sharedBy && (
+          <div style={{
+            position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)',
+            borderRadius: 8, padding: '5px 14px', color: '#4ade80', fontSize: 11, fontWeight: 600,
+            zIndex: 45, whiteSpace: 'nowrap', pointerEvents: 'none',
+          }}>
+            Shared project — owned by {sharedBy}
           </div>
         )}
       </div>
@@ -781,6 +850,9 @@ function AppCanvas({ user, project, onBack }) {
         onSave={handleManualSave}
         projectStartDate={projectStartDate}
         onProjectStartDateChange={setProjectStartDate}
+        isOwner={isOwner}
+        canEdit={canEdit}
+        onShare={() => setShowShareModal(true)}
       />
 
       {/* Focus mode indicator chip */}
@@ -825,7 +897,7 @@ function AppCanvas({ user, project, onBack }) {
         </div>
       )}
 
-      {editingNode && (editingNode.type ?? 'task') === 'external' ? (
+      {canEdit && editingNode && (editingNode.type ?? 'task') === 'external' ? (
         <ExternalDependencyEditPanel
           node={editingNode}
           onSave={handleSaveNode}
@@ -835,7 +907,7 @@ function AppCanvas({ user, project, onBack }) {
           onSimulate={handleSimulate}
           onStopSimulation={handleStopSimulation}
         />
-      ) : editingNode ? (
+      ) : canEdit && editingNode ? (
         <NodeEditPanel
           node={editingNode}
           lanes={lanes}
@@ -846,6 +918,14 @@ function AppCanvas({ user, project, onBack }) {
       ) : null}
 
       {cycleWarning && <CycleBanner onDismiss={() => setCycleWarning(false)} />}
+
+      {showShareModal && (
+        <ShareModal
+          projectId={project.id}
+          userId={user.id}
+          onClose={() => setShowShareModal(false)}
+        />
+      )}
 
       <SummaryBar
         projectEnd={projectEnd}

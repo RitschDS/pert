@@ -19,6 +19,7 @@ export default function PertCanvas({
   focusedNodeIds,  // Set<string> | null
   focusedEdgeIds,  // Set<string> | null
   projectStartDate, // ISO string | null
+  canEdit,          // bool — false hides edit handles on nodes
   onCanvasMouseDown,
   onCanvasMouseMove,
   onCanvasMouseUp,
@@ -158,6 +159,7 @@ export default function PertCanvas({
                   rubberBandActive={!!rubberBand}
                   isSelected={selectedIds.has(node.id)}
                   projectStartDate={projectStartDate}
+                  canEdit={canEdit}
                   onMouseDown={onNodeMouseDown}
                   onDoubleClick={onNodeDoubleClick}
                   onResizeMouseDown={onResizeMouseDown}
@@ -171,6 +173,7 @@ export default function PertCanvas({
                   rubberBandActive={!!rubberBand}
                   isSelected={selectedIds.has(node.id)}
                   projectStartDate={projectStartDate}
+                  canEdit={canEdit}
                   onMouseDown={onNodeMouseDown}
                   onDoubleClick={onNodeDoubleClick}
                   onResizeMouseDown={onResizeMouseDown}
