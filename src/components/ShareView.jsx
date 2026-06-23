@@ -37,16 +37,12 @@ export default function ShareView({ token }) {
   const [project, setProject] = useState(null);
 
   useEffect(() => {
-    supabase
-      .from('projects')
-      .select('*')
-      .eq('share_token', token)
-      .single()
+    supabase.rpc('get_project_by_token', { token })
       .then(({ data, error }) => {
-        if (error || !data) {
+        if (error || !data || data.length === 0) {
           setStatus('invalid');
         } else {
-          setProject(data);
+          setProject(data[0]);
           setStatus('found');
         }
       });
