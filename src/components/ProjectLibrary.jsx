@@ -39,7 +39,7 @@ export default function ProjectLibrary({ user, onOpenProject, onSignOut }) {
     setLoading(true);
     setError(null);
     const [ownResult, sharedResult] = await Promise.all([
-      supabase.from('projects').select('id, name, updated_at').order('updated_at', { ascending: false }),
+      supabase.from('projects').select('id, name, updated_at').eq('user_id', user.id).order('updated_at', { ascending: false }),
       supabase.rpc('get_shared_projects'),
     ]);
     if (ownResult.error) setError(`Unable to connect: ${ownResult.error.message} (code: ${ownResult.error.code})`);
